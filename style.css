@@ -244,10 +244,10 @@
     align-items: center;
     justify-content: center;
     text-align: center;
-    padding: 4px;
-    font-size: clamp(.6rem, 2vw, .9rem); /* vw fallback for browsers without container query units */
+    padding: 3px;
+    font-size: clamp(.5rem, 1.8vw, .9rem); /* vw fallback for browsers without container query units */
     font-weight: 600;
-    line-height: 1.15;
+    line-height: 1.1;
     overflow: hidden;
     word-break: break-word;
     outline: none;
@@ -259,6 +259,17 @@
     color: color-mix(in srgb, var(--cc) 55%, transparent);
     font-size: .8rem;
     font-weight: 700;
+  }
+  
+  /* play-mode display text: clamped to a fixed number of lines so a long
+     question truncates cleanly with an ellipsis instead of overflowing the
+     square cell or getting cropped mid-line */
+  .cell .txt {
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 5;
+    overflow: hidden;
+    width: 100%;
   }
   .play .cell { cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
   
@@ -280,17 +291,19 @@
   .cell.free {
     border-style: dashed;
     font-weight: 800;
-    font-size: clamp(.5rem, 1.6vw, .72rem); /* vw fallback for browsers without container query units */
+    font-size: clamp(.46rem, 1.5vw, .72rem); /* vw fallback for browsers without container query units */
     cursor: default;
   }
   
   /* container-query sizing: ties cell text to the card's own width instead of the
      viewport, so it stays consistent whether the card is sharing a row with the
-     rewards hub (tablet/medium widths) or stacked full-width (mobile/desktop) */
+     rewards hub (tablet/medium widths) or stacked full-width (mobile/desktop).
+     Floors are lower than before so longer questions have room to wrap down to
+     a size that actually fits, instead of overflowing the square cell. */
   @supports (container-type: inline-size) {
-    .cell { font-size: clamp(.62rem, 3.6cqw, .92rem); }
-    .cell.free { font-size: clamp(.52rem, 2.9cqw, .76rem); }
-    .cell:empty:before { font-size: clamp(.6rem, 2.6cqw, .85rem); }
+    .cell { font-size: clamp(.5rem, 3.4cqw, .9rem); }
+    .cell.free { font-size: clamp(.44rem, 2.6cqw, .74rem); }
+    .cell:empty:before { font-size: clamp(.56rem, 2.4cqw, .82rem); }
   }
   
   /* heart "stamp" animation on mark */
@@ -533,6 +546,20 @@
     .grid { gap: 5px; }
     .panel { padding: 14px; border-radius: 20px; }
     .tier { padding: 10px; }
+  
+    /* below ~720px the card is full-width but still narrow, so a forced
+       square cell runs out of room for longer questions. Let cells grow
+       to fit their full text instead of clamping it with an ellipsis. */
+    .cell {
+      aspect-ratio: auto;
+      min-height: 58px;
+      overflow: visible;
+    }
+    .cell .txt {
+      display: block;
+      -webkit-line-clamp: unset;
+      overflow: visible;
+    }
   }
   @media (max-width: 420px) {
     .logo { font-size: .9rem; }
@@ -681,3 +708,29 @@
     accent-color: var(--accent, var(--pink));
     cursor: pointer;
   }
+  
+  /* opens underneath the checkbox once it's ticked */
+  .tnc-box {
+    max-height: 0;
+    overflow: hidden;
+    margin: 0;
+    border: 1px solid transparent;
+    border-radius: 12px;
+    transition: max-height .3s ease;
+  }
+  .tnc-box.show {
+    max-height: 140px;
+    overflow-y: auto;
+    margin: 0 0 12px;
+    padding: 10px 12px;
+    border-color: var(--line);
+    background: color-mix(in srgb, var(--accent) 8%, var(--card));
+  }
+  .tnc-box p {
+    margin: 0 0 8px;
+    font-size: .78rem;
+    line-height: 1.4;
+    text-align: left;
+    color: var(--muted);
+  }
+  .tnc-box p:last-child { margin-bottom: 0; }
