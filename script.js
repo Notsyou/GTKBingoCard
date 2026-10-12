@@ -430,22 +430,11 @@
          : Math.round(100 - (diagonalPos / 8) * 100);
        cellEl.style.setProperty("--p", pinkShare + "%");
    
-       // in play mode, wrap non-empty text in a clamped span so a long question
-       // truncates cleanly instead of overflowing the square cell; edit mode
-       // stays plain text so typing/caret behavior works as expected
-       if (!editing && card.cells[i]) {
-         cellEl.textContent = "";
-         const txtEl = document.createElement("span");
-         txtEl.className = "txt";
-         txtEl.textContent = card.cells[i];
-         cellEl.appendChild(txtEl);
-       } else {
-         cellEl.textContent = card.cells[i];
-       }
+       cellEl.textContent = card.cells[i];
        if (FREE_CELLS[i]) cellEl.classList.add("free");
        cellEl.contentEditable = editing && !FREE_CELLS[i];
    
-       cellEl.oninput = () => { card.cells[i] = cellEl.textContent; save(); };
+       cellEl.oninput = () => { card.cells[i] = cellEl.textContent; save(); fitCellText(cellEl); };
    
        cellEl.onclick = () => {
          if (state.mode !== "play" || FREE_CELLS[i]) return;
@@ -481,6 +470,47 @@
      mainEl.appendChild(stage);
    
      refresh(false);
+   
+     // keep every cell the same square size: shrink the text inside any cell
+     // that overflows. Re-run whenever the grid's width changes (rotation,
+     // resize, layout switch) and once the web fonts have loaded.
+     if (gridFitObserver) gridFitObserver.disconnect();
+     if ("ResizeObserver" in window) {
+       gridFitObserver = new ResizeObserver(() => fitAllCellText(gridEl));
+       gridFitObserver.observe(gridEl);
+     } else {
+       fitAllCellText(gridEl);
+     }
+     if (document.fonts && document.fonts.ready) {
+       document.fonts.ready.then(() => fitAllCellText(gridEl));
+     }
+   }
+   
+   /* ================================================================
+      CELL TEXT AUTO-FIT
+      Cells are fixed squares. If a question is too long to fit at the
+      normal size, step the font down (never below the floor) until it does.
+      ================================================================ */
+   const MIN_CELL_FONT_PX = 6.5;
+   let gridFitObserver = null;
+   
+   function fitCellText(el) {
+     el.style.fontSize = ""; // back to the size the stylesheet gives it
+     const prevDisplay = el.style.display;
+     // measure as a normal block so overflow below the text is reported
+     // accurately (a vertically-centered flex box hides overflow above)
+     el.style.display = "block";
+   
+     let size = parseFloat(getComputedStyle(el).fontSize);
+     while (el.scrollHeight > el.clientHeight + 1 && size > MIN_CELL_FONT_PX) {
+       size -= 0.5;
+       el.style.fontSize = size + "px";
+     }
+     el.style.display = prevDisplay;
+   }
+   
+   function fitAllCellText(gridEl) {
+     gridEl.querySelectorAll(".cell").forEach(fitCellText);
    }
    
    document.getElementById("bEdit").onclick = () => { state.mode = "edit"; save(); render(); };

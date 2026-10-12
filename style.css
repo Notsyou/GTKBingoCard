@@ -249,7 +249,9 @@
     font-weight: 600;
     line-height: 1.1;
     overflow: hidden;
-    word-break: break-word;
+    overflow-wrap: break-word;
+    hyphens: auto;
+    -webkit-hyphens: auto;
     outline: none;
     background: color-mix(in srgb, var(--cc) 16%, var(--card));
     position: relative;
@@ -261,16 +263,6 @@
     font-weight: 700;
   }
   
-  /* play-mode display text: clamped to a fixed number of lines so a long
-     question truncates cleanly with an ellipsis instead of overflowing the
-     square cell or getting cropped mid-line */
-  .cell .txt {
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 5;
-    overflow: hidden;
-    width: 100%;
-  }
   .play .cell { cursor: pointer; user-select: none; -webkit-tap-highlight-color: transparent; }
   
   .cell.m { background: color-mix(in srgb, var(--cc) 42%, var(--card)); border-color: var(--cc); }
@@ -513,58 +505,73 @@
   @media (max-width: 720px) {
     .app { flex-direction: column; }
   
+    /* two-row sticky header: logo on top, card tabs + mode toggle underneath */
     .side {
       position: sticky;
       top: 0;
       z-index: 10;
       width: 100%;
-      flex-direction: row;
-      flex-wrap: nowrap;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      grid-template-areas:
+        "logo logo"
+        "tabs modes";
       align-items: center;
-      gap: 8px;
+      gap: 6px 8px;
       border-right: 0;
       border-bottom: 1px solid var(--line);
-      padding: 10px 12px;
-      padding-top: calc(10px + env(safe-area-inset-top, 0px));
+      padding: 8px 12px;
+      padding-top: calc(8px + env(safe-area-inset-top, 0px));
     }
-    .logo { width: auto; margin: 0; font-size: 1rem; flex-shrink: 0; }
+    .logo { grid-area: logo; margin: 0; font-size: .95rem; text-align: center; }
   
-    #tabs { display: flex !important; flex: 1; gap: 6px; overflow-x: auto; scrollbar-width: none; }
-    .tab { width: auto; flex: 0 0 auto; padding: 9px 12px; font-size: .85rem; }
-    .tab .t { max-width: 90px; }
-    .badge { font-size: .6rem; padding: 1px 6px; }
+    #tabs { grid-area: tabs; display: flex !important; gap: 6px; min-width: 0; }
+    .tab {
+      flex: 1 1 0;
+      min-width: 0;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 10px;
+      font-size: .85rem;
+    }
+    .tab:before { width: 9px; height: 9px; }
+    .tab .t { flex: 0 1 auto; }
+    /* the BINGO badge shrinks to a small dot so both tabs always fit */
+    .badge { font-size: 0; width: 9px; height: 9px; padding: 0; }
   
-    .modes { margin-top: 0; flex-direction: row; flex-shrink: 0; gap: 4px; }
+    .modes { grid-area: modes; margin-top: 0; flex-direction: row; gap: 4px; }
     .modes small { display: none; }
-    .mode { flex: 0 0 auto; padding: 9px 12px; font-size: .8rem; }
+    .mode { padding: 8px 12px; font-size: .8rem; }
+    .mode .x { display: none; } /* "Edit boxes" -> "Edit" */
   
-    main { padding: 16px 12px 40px; }
-    .stage { gap: 16px; }
+    main { padding: 12px 10px calc(72px + env(safe-area-inset-bottom, 0px)); }
+    .stage { gap: 14px; }
     .card, .hub { flex-basis: 100%; max-width: none; }
-    .card { padding: 14px; border-radius: 20px; }
-    .name { font-size: 1.25rem; }
-    .grid { gap: 5px; }
+    .card { padding: 12px; border-radius: 20px; }
+    .name { font-size: 1.25rem; margin-bottom: 2px; }
+    .status { height: 18px; margin-bottom: 4px; }
+    .grid { gap: 4px; }
     .panel { padding: 14px; border-radius: 20px; }
     .tier { padding: 10px; }
   
-    /* below ~720px the card is full-width but still narrow, so a forced
-       square cell runs out of room for longer questions. Let cells grow
-       to fit their full text instead of clamping it with an ellipsis. */
+    /* cells stay perfectly square (same size everywhere); script.js shrinks
+       the text inside any cell that wouldn't otherwise fit, and long words
+       hyphenate instead of snapping mid-word */
     .cell {
-      aspect-ratio: auto;
-      min-height: 58px;
-      overflow: visible;
+      padding: 3px 2px;
+      border-radius: 10px;
+      font-size: clamp(.5rem, 2.5vw, .7rem); /* fallback without container units */
+      line-height: 1.12;
     }
-    .cell .txt {
-      display: block;
-      -webkit-line-clamp: unset;
-      overflow: visible;
+    @supports (container-type: inline-size) {
+      .cell { font-size: clamp(.5rem, 2.9cqw, .78rem); }
     }
+    .cell.m:after { font-size: .8rem; top: 0; right: 3px; }
   }
   @media (max-width: 420px) {
-    .logo { font-size: .9rem; }
-    .tab .t { max-width: 64px; }
-    .mode { font-size: .74rem; padding: 8px 9px; }
+    .logo { font-size: .88rem; }
+    .tab { padding: 8px 6px; font-size: .8rem; }
+    .mode { padding: 8px 10px; font-size: .76rem; }
   }
   
   /* ============================================================
