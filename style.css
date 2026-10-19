@@ -496,6 +496,12 @@
     border-radius: 50%;
     margin-right: 6px;
   }
+  .sync-note {
+    margin: 10px 0 0;
+    text-align: center;
+    font-size: .7rem;
+    color: var(--muted);
+  }
   .leg .lb:before { background: var(--blue); }
   .leg .lp:before { background: var(--pink); }
   

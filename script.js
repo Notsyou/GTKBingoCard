@@ -241,6 +241,7 @@
        labelEls[cardIndex].textContent = card.name || "Card " + (cardIndex + 1);
        updateSynergy();
        save();
+       syncCardSoon(cardIndex, ["name"]);
      };
    
      const statusEl = document.createElement("div");
@@ -304,7 +305,7 @@
          refs.title.contentEditable = true;
          refs.title.dataset.ph = "Type the hidden reward…";
          refs.title.textContent = card.rewards[reward.id];
-         refs.title.oninput = () => { card.rewards[reward.id] = refs.title.textContent; save(); };
+         refs.title.oninput = () => { card.rewards[reward.id] = refs.title.textContent; save(); syncCardSoon(cardIndex, ["rewards"]); };
          refs.title.onpaste = pasteAsPlainText;
        }
    
@@ -327,7 +328,9 @@
          <span class="lb"></span>
          <span class="lp"></span>
        </div>
+       <p class="sync-note"></p>
      `;
+     synergyPanel.querySelector(".sync-note").textContent = syncStatus;
    
      synergyRefs = {
        blueBar: synergyPanel.querySelector(".sb"),
@@ -386,6 +389,7 @@
                showDateCheckModal(() => {
                  card.redeemed[reward.id] = true;
                  save();
+                 syncCard(cardIndex, ["redeemed"]);
                  refresh(false);
                  showRedeemModal(card.rewards[reward.id] || "Unlocked!");
                });
@@ -394,6 +398,7 @@
    
              card.redeemed[reward.id] = willRedeem;
              save();
+             syncCard(cardIndex, ["redeemed"]);
              refresh(false);
              if (willRedeem) {
                showRedeemModal(card.rewards[reward.id] || "Unlocked!");
@@ -434,13 +439,15 @@
        if (FREE_CELLS[i]) cellEl.classList.add("free");
        cellEl.contentEditable = editing && !FREE_CELLS[i];
    
-       cellEl.oninput = () => { card.cells[i] = cellEl.textContent; save(); fitCellText(cellEl); };
+       cellEl.oninput = () => { card.cells[i] = cellEl.textContent; save(); syncCardSoon(cardIndex, ["cells"]); fitCellText(cellEl); };
    
        cellEl.onclick = () => {
          if (state.mode !== "play" || FREE_CELLS[i]) return;
          card.marks[i] = !card.marks[i];
          save();
          refresh(true);
+         syncCard(cardIndex, ["marks"]);
+         playClickSfx(cardIndex);
          cellEl.classList.remove("stamp");
          if (card.marks[i]) {
            void cellEl.offsetWidth; // restart animation
@@ -462,6 +469,7 @@
        applyFreeCells(card);
        card.redeemed = {};
        save();
+       syncCard(cardIndex, ["marks", "redeemed"]);
        refresh(false);
      };
    
@@ -513,11 +521,214 @@
      gridEl.querySelectorAll(".cell").forEach(fitCellText);
    }
    
+   /* ================================================================
+      CLICK SOUNDS
+      A random voice clip plays when a box is tapped in Play mode. Only the
+      cards listed in SFX_CARDS get sounds (0 = Team Blue, 1 = Team Pink).
+      Put the audio files in an "sfx" folder next to index.html. Any file
+      that's missing just stays silent, nothing breaks.
+      ================================================================ */
+   const SFX_FILES = [
+     "sfx/click1.mp3",
+     "sfx/click2.mp3",
+     "sfx/click3.mp3",
+     "sfx/click4.mp3",
+     "sfx/click5.mp3",
+     "sfx/click6.mp3",
+     "sfx/click7.mp3",
+   ];
+   const SFX_CARDS = [1];   // only her card (Team Pink) gets sounds
+   const SFX_VOLUME = 1;    // 0 to 1
+   
+   const sfxClips = SFX_FILES.map(src => {
+     const audio = new Audio(src);
+     audio.preload = "auto";
+     audio.volume = SFX_VOLUME;
+     return audio;
+   });
+   let lastSfxIndex = -1;
+   
+   function playClickSfx(cardIndex) {
+     if (!SFX_CARDS.includes(cardIndex) || sfxClips.length === 0) return;
+   
+     // random clip, but never the same one twice in a row
+     let i;
+     do {
+       i = Math.floor(Math.random() * sfxClips.length);
+     } while (sfxClips.length > 1 && i === lastSfxIndex);
+     lastSfxIndex = i;
+   
+     const clip = sfxClips[i];
+     try { clip.currentTime = 0; } catch (e) { /* not loaded yet */ }
+     clip.play().catch(() => { /* file missing or playback blocked: stay silent */ });
+   }
+   
+   /* ================================================================
+      LIVE SYNC (Firebase Firestore)
+      Progress used to live only in each browser's localStorage. With this,
+      each card is also stored in the cloud (docs bingo/card0 and bingo/card1)
+      so every device sees the same marks, redeemed rewards, texts and names,
+      updating live. Mode (edit/play) and which tab is open stay per-device.
+      Fill in FIREBASE_CONFIG to turn it on; until then (or if the network
+      is down) everything keeps working from localStorage.
+      ================================================================ */
+   const FIREBASE_CONFIG = {
+     apiKey: "AIzaSyCuLmwH4wH-D3S5K9RS21w_W3FkCX6m98w",
+     authDomain: "bingocard-b95eb.firebaseapp.com",
+     projectId: "bingocard-b95eb",
+     appId: "1:727397732602:web:ce9ad65da56f5d1eb5b943",
+   };
+   const FIREBASE_SDK = "https://www.gstatic.com/firebasejs/10.14.1";
+   const SYNC_KEYS = ["name", "cells", "marks", "rewards", "redeemed"];
+   
+   let syncDb = null;   // Firestore instance, set once connected
+   let syncFs = null;   // Firestore functions (doc, setDoc, onSnapshot...)
+   let syncStatus = "Saving on this device only";
+   let pendingRerender = false;
+   const pendingKeys = [new Set(), new Set()];
+   const pendingTimers = [null, null];
+   
+   function setSyncStatus(text) {
+     syncStatus = text;
+     const el = document.querySelector(".sync-note");
+     if (el) el.textContent = text;
+   }
+   
+   // the fields of a card we store in the cloud (redeemed/rewards are normalized
+   // so every reward key is always present)
+   function cardPayload(card, keys) {
+     const data = {};
+     keys.forEach(k => {
+       if (k === "redeemed") {
+         data.redeemed = {};
+         REWARDS.forEach(r => { data.redeemed[r.id] = !!card.redeemed[r.id]; });
+       } else if (k === "rewards") {
+         data.rewards = {};
+         REWARDS.forEach(r => { data.rewards[r.id] = card.rewards[r.id] || ""; });
+       } else {
+         data[k] = card[k];
+       }
+     });
+     return data;
+   }
+   
+   // a comparable fingerprint, so we only re-render when something really changed
+   function cardSignature(card) {
+     return JSON.stringify([
+       card.name,
+       card.cells,
+       card.marks,
+       cardPayload(card, ["rewards", "redeemed"]),
+     ]);
+   }
+   
+   // write the given fields of one card to the cloud right away
+   function syncCard(i, keys) {
+     if (!syncDb) return;
+     const ref = syncFs.doc(syncDb, "bingo", "card" + i);
+     syncFs.setDoc(ref, cardPayload(state.cards[i], keys), { merge: true })
+       .then(() => setSyncStatus("Synced across devices"))
+       .catch(err => {
+         console.warn("Sync write failed:", err);
+         setSyncStatus("Sync problem: saving on this device only");
+       });
+   }
+   
+   // same, but batched for typing (waits for a short pause)
+   function syncCardSoon(i, keys) {
+     keys.forEach(k => pendingKeys[i].add(k));
+     clearTimeout(pendingTimers[i]);
+     pendingTimers[i] = setTimeout(() => {
+       const batch = Array.from(pendingKeys[i]);
+       pendingKeys[i].clear();
+       syncCard(i, batch);
+     }, 700);
+   }
+   
+   // don't rebuild the screen while someone is typing in it; do it once they stop
+   function rerenderIfSafe() {
+     const el = document.activeElement;
+     if (el && mainEl.contains(el) && (el.isContentEditable || el.tagName === "INPUT")) {
+       pendingRerender = true;
+       return;
+     }
+     pendingRerender = false;
+     render();
+   }
+   mainEl.addEventListener("focusout", () => {
+     setTimeout(() => { if (pendingRerender) rerenderIfSafe(); }, 0);
+   });
+   
+   // a card changed on another device: pull it into local state
+   function applyRemoteCard(i, data) {
+     const card = state.cards[i];
+     const before = cardSignature(card);
+   
+     if (typeof data.name === "string") card.name = data.name;
+     if (Array.isArray(data.cells) && data.cells.length === 25) card.cells = data.cells.map(String);
+     if (Array.isArray(data.marks) && data.marks.length === 25) card.marks = data.marks.map(Boolean);
+     if (data.rewards) card.rewards = Object.assign(blankRewards(), data.rewards);
+     if (data.redeemed) card.redeemed = Object.assign({}, data.redeemed);
+     applyFreeCells(card);
+   
+     if (cardSignature(card) === before) return; // just our own write coming back
+   
+     save();
+     labelEls[i].textContent = card.name || "Card " + (i + 1);
+     if (i === state.active) {
+       rerenderIfSafe();
+     } else {
+       updateBingoBadges();
+       updateSynergy();
+     }
+   }
+   
+   async function initRemoteSync() {
+     if (!FIREBASE_CONFIG.apiKey || !FIREBASE_CONFIG.projectId) {
+       setSyncStatus("Saving on this device only (sync not set up)");
+       return;
+     }
+     try {
+       const [appMod, fs] = await Promise.all([
+         import(FIREBASE_SDK + "/firebase-app.js"),
+         import(FIREBASE_SDK + "/firebase-firestore.js"),
+       ]);
+       syncFs = fs;
+       syncDb = fs.getFirestore(appMod.initializeApp(FIREBASE_CONFIG));
+       setSyncStatus("Connecting...");
+   
+       [0, 1].forEach(i => {
+         fs.onSnapshot(
+           fs.doc(syncDb, "bingo", "card" + i),
+           snap => {
+             if (snap.metadata.hasPendingWrites) return; // our own write, not yet confirmed
+             if (!snap.exists()) {
+               // first run: put this device's copy in the cloud (but never off a
+               // cache-only "doesn't exist" while we're offline)
+               if (!snap.metadata.fromCache) syncCard(i, SYNC_KEYS);
+               return;
+             }
+             setSyncStatus("Synced across devices");
+             applyRemoteCard(i, snap.data());
+           },
+           err => {
+             console.warn("Sync listener failed:", err);
+             setSyncStatus("Sync problem: saving on this device only");
+           }
+         );
+       });
+     } catch (err) {
+       console.warn("Could not start sync:", err);
+       setSyncStatus("Sync unavailable: saving on this device only");
+     }
+   }
+   
    document.getElementById("bEdit").onclick = () => { state.mode = "edit"; save(); render(); };
    document.getElementById("bPlay").onclick = () => { state.mode = "play"; save(); render(); };
    
    buildTabs();
    render();
+   initRemoteSync();
    
    /* ================================================================
       REDEEM CONGRATULATIONS MODAL
@@ -679,10 +890,18 @@
          <h2>Would you allow james to experience the honor of courting You A.K.A ms Shaina Jei?</h2>
          <label class="tnc-row">
            <input type="checkbox" class="tnc-check">
-           <span>Placeholder</span>
+           <span>I agree to the Terms &amp; Conditions</span>
          </label>
          <div class="tnc-box">
-           <p>Terms and Conditions placeholder for now.</p>
+           <p>1. By checking this box, Shaina Jei acknowledges james and allows him to be her suitor/mangliligaw.</p>
+           <p>2. James agrees to open doors, carry bags, laugh at jokes, and lend his hoodies anytime to Shaina Jei.</p>
+           <p>3. Ms Shaina Jei has the right to ask james "saan tayo kakain?" and James will pick.</p>
+           <p>4. James agrees to take initiative in making the first moves and asking the cute lady to dates and hanging out.</p>
+           <p>5. But of course Shaina Jei can also tell james if she wants to go out on a date😏</p>
+           <p>6. Shaina Jei can expect to regularly have company when commuting home</p>
+           <p>7. Shaina Jei should expect surprises as james is very random. (Good surprises sya dw)</p>
+           <p>8. Finally, James acknowledges that Shaina Jei is pursuing the med field and agrees to volunteer in order to help her (Wag lang stool)</p>
+           <p>9. By reaching this far Shaina Jei undeniably shows her interest in james and agrees to be courted by him</p>
          </div>
          <div class="date-check-actions">
            <button class="dc-good tnc-yes" data-action="scene4" type="button" disabled>Yes</button>
