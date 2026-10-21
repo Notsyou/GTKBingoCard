@@ -364,9 +364,12 @@
          refs.statusText.textContent = unlocked
            ? "UNLOCKED"
            : progress[reward.id] + "/" + reward.n + " boxes";
-         refs.title.textContent = unlocked
-           ? (card.rewards[reward.id] || "Unlocked!")
-           : "Hidden reward";
+         const redeemed = !!card.redeemed[reward.id];
+         refs.title.textContent = !unlocked
+           ? "Hidden reward"
+           : redeemed
+             ? (card.rewards[reward.id] || "Unlocked!")
+             : "Click to redeem";
    
          if (refs.redeemBtn) { refs.redeemBtn.remove(); refs.redeemBtn = null; }
    
@@ -426,7 +429,18 @@
          : Math.round(100 - (diagonalPos / 8) * 100);
        cellEl.style.setProperty("--p", pinkShare + "%");
    
-       cellEl.textContent = card.cells[i];
+       // in play mode, wrap non-empty text in a clamped span so a long question
+       // truncates cleanly instead of overflowing the square cell; edit mode
+       // stays plain text so typing/caret behavior works as expected
+       if (!editing && card.cells[i]) {
+         cellEl.textContent = "";
+         const txtEl = document.createElement("span");
+         txtEl.className = "txt";
+         txtEl.textContent = card.cells[i];
+         cellEl.appendChild(txtEl);
+       } else {
+         cellEl.textContent = card.cells[i];
+       }
        if (FREE_CELLS[i]) cellEl.classList.add("free");
        cellEl.contentEditable = editing && !FREE_CELLS[i];
    
@@ -636,6 +650,9 @@
            <input type="checkbox" class="tnc-check">
            <span>Placeholder</span>
          </label>
+         <div class="tnc-box">
+           <p>Terms and Conditions placeholder for now.</p>
+         </div>
          <div class="date-check-actions">
            <button class="dc-good tnc-yes" data-action="scene4" type="button" disabled>Yes</button>
          </div>
@@ -653,11 +670,16 @@
        btn.onclick = () => handleProposalAction(btn, btn.dataset.action);
      });
    
-     // scene 3 only: the "Yes" button stays disabled until the T&C box is checked
+     // scene 3 only: the "Yes" button stays disabled until the T&C box is
+     // checked, and checking it opens a scrollable terms panel
      const tncCheck = proposeContentEl.querySelector(".tnc-check");
      const tncYesBtn = proposeContentEl.querySelector(".tnc-yes");
+     const tncBox = proposeContentEl.querySelector(".tnc-box");
      if (tncCheck && tncYesBtn) {
-       tncCheck.onchange = () => { tncYesBtn.disabled = !tncCheck.checked; };
+       tncCheck.onchange = () => {
+         tncYesBtn.disabled = !tncCheck.checked;
+         if (tncBox) tncBox.classList.toggle("show", tncCheck.checked);
+       };
      }
    }
    
