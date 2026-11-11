@@ -2,10 +2,6 @@
    THEME TOKENS
    ============================================================ */
    :root {
-    box-sizing: border-box;
-    padding-top: env(safe-area-inset-top, 0px);
-    padding-bottom: env(safe-area-inset-bottom, 0px);
-  
     --bg1: #d9edff;
     --bg2: #ffdbe9;
     --side: rgba(255, 255, 255, .72);
@@ -21,6 +17,11 @@
   
     --body: "Nunito Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
     --head: "Quicksand", "Nunito Sans", system-ui, sans-serif;
+  
+    /* three-step type scale: title / body / caption */
+    --fs-title: 1.4rem;
+    --fs-body: 1rem;
+    --fs-cap: .76rem;
   }
   
   @media (prefers-color-scheme: dark) {
@@ -53,7 +54,8 @@
   }
   
   html { scroll-padding-top: env(safe-area-inset-top, 0px); }
-  *, *:before, *:after { box-sizing: inherit; }
+  *, *:before, *:after { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
   
   body {
     margin: 0;
@@ -70,6 +72,7 @@
   .app {
     display: flex;
     min-height: 100vh;
+    min-height: 100dvh;
     --accent: var(--blue); /* card 0 = blue, card 1 overrides to pink */
   }
   .app[data-card="1"] { --accent: var(--pink); }
@@ -136,7 +139,7 @@
   
   .badge {
     font-size: .7rem;
-    font-weight: 800;
+    font-weight: 700;
     background: #fff;
     color: var(--t);
     border-radius: 999px;
@@ -175,33 +178,32 @@
      ============================================================ */
   main {
     flex: 1;
+    min-width: 0;
     padding: 28px 20px 48px;
     display: flex;
     justify-content: center;
     align-items: flex-start;
   }
   
+  /* one centered column at every screen size: card on top, hub underneath at the same width */
   .stage {
     display: flex;
-    flex-wrap: wrap;
-    gap: 20px;
-    justify-content: center;
-    align-items: flex-start;
+    flex-direction: column;
+    gap: 14px;
     width: 100%;
-    max-width: 1000px;
+    max-width: 560px;
   }
   
   /* ---- bingo card ---- */
   .card {
     container-type: inline-size; /* lets cell text scale off the card's own width, not the viewport */
-    flex: 1 1 440px;
-    max-width: 560px;
+    width: 100%;
     background: color-mix(in srgb, var(--accent) 24%, transparent);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    border: 3px solid var(--accent);
-    border-radius: 24px;
-    padding: 18px;
+    border: 2px solid var(--accent);
+    border-radius: 22px;
+    padding: 14px 10px 10px;
     box-shadow: 0 10px 32px color-mix(in srgb, var(--accent) 30%, transparent);
   }
   
@@ -210,20 +212,24 @@
     width: 100%;
     text-align: center;
     font-family: var(--head);
-    font-size: 1.5rem;
+    font-size: 1.2rem;
     font-weight: 700;
     border: 0;
     background: transparent;
     color: var(--accent);
-    margin-bottom: 6px;
+    margin: 0 0 2px;
+    padding: 0;
     outline: none;
   }
   
   .status {
     text-align: center;
-    height: 24px;
+    height: 20px;
+    line-height: 20px;
     font-family: var(--head);
     font-weight: 700;
+    font-size: .9rem;
+    letter-spacing: .04em;
     color: var(--accent);
     margin-bottom: 8px;
   }
@@ -231,27 +237,27 @@
   .grid {
     display: grid;
     grid-template-columns: repeat(5, 1fr);
-    gap: 6px;
+    gap: 5px;
   }
   
   /* each cell gets its own color along the pink<->blue diagonal; --p = pink share */
   .cell {
     --cc: color-mix(in srgb, var(--pink) var(--p), var(--blue));
-    aspect-ratio: 1;
+    aspect-ratio: 5 / 6; /* a little taller than wide so long questions get room */
     border: 1.5px solid color-mix(in srgb, var(--cc) 45%, var(--line));
     border-radius: 12px;
     display: flex;
     align-items: center;
     justify-content: center;
     text-align: center;
-    padding: 3px;
-    font-size: clamp(.5rem, 1.8vw, .9rem); /* vw fallback for browsers without container query units */
-    font-weight: 600;
-    line-height: 1.1;
+    padding: 4px 3px;
+    font-size: clamp(.55rem, 2.5vw, .72rem); /* vw fallback for browsers without container query units */
+    font-weight: 700;
+    line-height: 1.15;
     overflow: hidden;
-    overflow-wrap: break-word;
-    hyphens: auto;
-    -webkit-hyphens: auto;
+    overflow-wrap: normal; /* words stay whole; script.js shrinks the font until the longest word fits */
+    hyphens: manual;
+    -webkit-hyphens: manual;
     outline: none;
     background: color-mix(in srgb, var(--cc) 16%, var(--card));
     position: relative;
@@ -277,12 +283,18 @@
     transform: rotate(-8deg);
   }
   
-  .cell.w { background: var(--cc); color: #fff; border-color: var(--cc); }
+  .cell.m, .cell.w { text-shadow: 0 1px 2px rgba(0, 0, 0, .28); }
+  .cell.w {
+    background: color-mix(in srgb, var(--cc) 80%, #1b1030);
+    color: #fff;
+    border-color: var(--cc);
+    box-shadow: 0 0 0 1.5px rgba(255, 255, 255, .5), 0 0 14px color-mix(in srgb, var(--cc) 55%, transparent);
+  }
   .cell.w:after { color: #fff; }
   
   .cell.free {
     border-style: dashed;
-    font-weight: 800;
+    font-weight: 700;
     font-size: clamp(.46rem, 1.5vw, .72rem); /* vw fallback for browsers without container query units */
     cursor: default;
   }
@@ -293,7 +305,7 @@
      Floors are lower than before so longer questions have room to wrap down to
      a size that actually fits, instead of overflowing the square cell. */
   @supports (container-type: inline-size) {
-    .cell { font-size: clamp(.5rem, 3.4cqw, .9rem); }
+    .cell { font-size: clamp(.58rem, 3.3cqw, .95rem); }
     .cell.free { font-size: clamp(.44rem, 2.6cqw, .74rem); }
     .cell:empty:before { font-size: clamp(.56rem, 2.4cqw, .82rem); }
   }
@@ -326,43 +338,44 @@
     display: block;
     margin: 14px auto 0;
     font: inherit;
-    font-size: .8rem;
+    font-size: .78rem;
+    font-weight: 600;
     color: var(--muted);
-    border: 1px solid var(--line);
+    border: 0;
     background: transparent;
     padding: 6px 14px;
-    border-radius: 999px;
     cursor: pointer;
+    text-decoration: underline;
+    text-underline-offset: 3px;
   }
+  .edit .reset { display: none; }
   
   /* ============================================================
      RIGHT-HAND HUB (rewards + match synergy)
      ============================================================ */
   .hub {
-    flex: 1 1 300px;
-    max-width: 360px;
+    width: 100%;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 10px;
   }
   
   .panel {
-    background: color-mix(in srgb, var(--accent) 24%, transparent);
+    background: color-mix(in srgb, var(--accent) 13%, transparent);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    border: 3px solid var(--accent);
-    border-radius: 24px;
-    padding: 16px;
-    box-shadow: 0 10px 32px color-mix(in srgb, var(--accent) 30%, transparent);
+    border: 1.5px solid color-mix(in srgb, var(--accent) 65%, transparent);
+    border-radius: 20px;
+    padding: 14px;
   }
   
   .ph { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-  .ph h2 { margin: 0; font-family: var(--head); font-size: 1.1rem; color: var(--accent); }
-  .sub { margin: 2px 0 12px; font-size: .78rem; color: var(--muted); }
+  .ph h2 { margin: 0; font-family: var(--head); font-size: var(--fs-body); font-weight: 700; color: var(--accent); }
+  .sub { margin: 2px 0 12px; font-size: var(--fs-cap); color: var(--muted); }
   
   .pill {
-    font-size: .72rem;
-    font-weight: 800;
+    font-size: var(--fs-cap);
+    font-weight: 700;
     padding: 3px 10px;
     border-radius: 999px;
     background: var(--card);
@@ -370,32 +383,31 @@
     white-space: nowrap;
   }
   
-  /* ---- one reward row ---- */
+  /* ---- one reward row: [icon] label / title / hint [status | Redeem] ---- */
   .tier {
     border-radius: 18px;
-    padding: 12px;
+    padding: 10px 12px;
     background: color-mix(in srgb, var(--accent) 18%, var(--card));
     border: 1.5px dashed var(--accent);
     margin-bottom: 8px;
   }
   .tier:last-child { margin-bottom: 0; }
   
-  .tier .top {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 8px;
-    font-size: .72rem;
-    font-weight: 800;
-    margin-bottom: 8px;
+  .tier .body { display: flex; align-items: center; gap: 12px; }
+  .tier .lab {
+    font-size: .66rem;
+    font-weight: 700;
+    letter-spacing: .06em;
+    text-transform: uppercase;
+    opacity: .75;
   }
-  .tier .top .st { opacity: .8; white-space: nowrap; }
-  .tier .body { display: flex; align-items: center; gap: 10px; }
+  .tier .st { font-size: .72rem; font-weight: 700; white-space: nowrap; opacity: .8; }
+  .tier.got .st { display: none; }
   
   /* lock/unlock indicator: ring -> filled circle + checkmark */
   .tier .ico {
-    width: 30px;
-    height: 30px;
+    width: 32px;
+    height: 32px;
     border-radius: 50%;
     border: 2.5px solid color-mix(in srgb, var(--accent) 55%, var(--line));
     flex-shrink: 0;
@@ -418,12 +430,13 @@
   .tier .t1 {
     font-family: var(--head);
     font-weight: 700;
-    font-size: .98rem;
+    font-size: var(--fs-body);
     outline: none;
     word-break: break-word;
+    margin: 1px 0;
   }
   .tier .t1:empty:before { content: attr(data-ph); opacity: .55; }
-  .tier .t2 { font-size: .76rem; color: var(--muted); }
+  .tier .t2 { font-size: var(--fs-cap); color: var(--muted); }
   
   .tier.got {
     background: linear-gradient(135deg, var(--accent), color-mix(in srgb, var(--accent) 70%, #7c5cff));
@@ -454,15 +467,13 @@
   .tier.got .pb { display: none; }
   
   .redeem {
-    display: block;
-    width: 100%;
-    margin-top: 10px;
+    flex-shrink: 0;
     font: inherit;
-    font-weight: 800;
-    font-size: .85rem;
+    font-weight: 700;
+    font-size: .82rem;
     border: 0;
     border-radius: 999px;
-    padding: 8px;
+    padding: 8px 16px;
     background: #fff;
     color: var(--accent);
     cursor: pointer;
@@ -470,14 +481,81 @@
   .redeem.done { background: rgba(255, 255, 255, .3); color: #fff; }
   
   /* ---- match synergy bar ---- */
+  /* the wrap carries the milestone circles, which sit on top of the bar */
+  .bar-wrap {
+    position: relative;
+    margin: 14px 13px 26px; /* side room so the 100% circle isn't cut off; bottom room for the % labels */
+  }
   .bar {
     display: flex;
     height: 12px;
     border-radius: 999px;
     overflow: hidden;
     background: color-mix(in srgb, var(--muted) 20%, var(--card));
-    margin: 10px 0;
   }
+  .ms {
+    position: absolute;
+    top: 6px;
+    width: 26px;
+    height: 26px;
+    transform: translate(-50%, -50%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 50%;
+    font-family: var(--head);
+    font-size: .8rem;
+    font-weight: 700;
+    line-height: 1;
+    color: var(--muted);
+    background: var(--card);
+    border: 2px solid color-mix(in srgb, var(--muted) 55%, transparent);
+    transition: background .3s, color .3s, border-color .3s, transform .3s;
+  }
+  .ms:after {
+    content: attr(data-at) "%";
+    position: absolute;
+    top: calc(100% + 3px);
+    font-family: var(--body);
+    font-size: .66rem;
+    font-weight: 700;
+    color: var(--muted);
+  }
+  .ms.got {
+    color: #fff;
+    border: 3px solid #fff; /* white ring so the circle stands out against the bar */
+    transform: translate(-50%, -50%) scale(1.08);
+  }
+  /* reached circles alternate pink / blue, like the two teams */
+  .ms.got.p { background: var(--pink); box-shadow: 0 0 0 1px rgba(0, 0, 0, .08), 0 2px 8px color-mix(in srgb, var(--pink) 55%, transparent); }
+  .ms.got.b { background: var(--blue); box-shadow: 0 0 0 1px rgba(0, 0, 0, .08), 0 2px 8px color-mix(in srgb, var(--blue) 55%, transparent); }
+  .ms.got:after { color: var(--ink); }
+  .ms.clickable { cursor: pointer; }
+  .ms.clickable:hover { transform: translate(-50%, -50%) scale(1.2); }
+  .ms:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  
+  /* hover bubble with the milestone's message (the 100% one is right-aligned so it stays on screen) */
+  .ms.clickable:hover:before {
+    content: attr(data-msg);
+    position: absolute;
+    bottom: calc(100% + 10px);
+    left: 50%;
+    transform: translateX(-50%) scale(calc(1 / 1.2));
+    width: max-content;
+    max-width: 210px;
+    padding: 8px 12px;
+    border-radius: 12px;
+    background: var(--ink);
+    color: var(--bg1);
+    font-family: var(--body);
+    font-size: .74rem;
+    font-weight: 700;
+    line-height: 1.3;
+    text-align: center;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .ms.clickable[data-at="100"]:hover:before { left: auto; right: -6px; transform: scale(calc(1 / 1.2)); transform-origin: bottom right; }
   .bar .sb { background: var(--blue); transition: width .4s; }
   .bar .sp { background: var(--pink); transition: width .4s; }
   
@@ -485,7 +563,7 @@
     display: flex;
     justify-content: space-between;
     gap: 8px;
-    font-size: .78rem;
+    font-size: var(--fs-cap);
     color: var(--muted);
   }
   .leg span:before {
@@ -511,7 +589,7 @@
   @media (max-width: 720px) {
     .app { flex-direction: column; }
   
-    /* two-row sticky header: logo on top, card tabs + mode toggle underneath */
+    /* compact sticky header: logo, then team switch + mode switch */
     .side {
       position: sticky;
       top: 0;
@@ -523,21 +601,27 @@
         "logo logo"
         "tabs modes";
       align-items: center;
-      gap: 6px 8px;
+      gap: 8px 10px;
       border-right: 0;
       border-bottom: 1px solid var(--line);
-      padding: 8px 12px;
+      padding: 8px 12px 10px;
       padding-top: calc(8px + env(safe-area-inset-top, 0px));
     }
     .logo { grid-area: logo; margin: 0; font-size: .95rem; text-align: center; }
   
-    #tabs { grid-area: tabs; display: flex !important; gap: 6px; min-width: 0; }
+    #tabs, .modes {
+      padding: 3px;
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--ink) 8%, transparent);
+    }
+    #tabs { grid-area: tabs; display: flex !important; gap: 2px; min-width: 0; }
     .tab {
       flex: 1 1 0;
       min-width: 0;
       justify-content: center;
       gap: 6px;
-      padding: 8px 10px;
+      padding: 7px 8px;
+      border-radius: 999px;
       font-size: .85rem;
     }
     .tab:before { width: 9px; height: 9px; }
@@ -545,40 +629,138 @@
     /* the BINGO badge shrinks to a small dot so both tabs always fit */
     .badge { font-size: 0; width: 9px; height: 9px; padding: 0; }
   
-    .modes { grid-area: modes; margin-top: 0; flex-direction: row; gap: 4px; }
+    .modes { grid-area: modes; margin-top: 0; flex-direction: row; gap: 2px; }
     .modes small { display: none; }
-    .mode { padding: 8px 12px; font-size: .8rem; }
+    .mode { padding: 7px 12px; font-size: .8rem; border: 0; background: transparent; }
+    .mode.on { background: linear-gradient(90deg, var(--pink), var(--blue)); }
     .mode .x { display: none; } /* "Edit boxes" -> "Edit" */
   
-    main { padding: 12px 10px calc(72px + env(safe-area-inset-bottom, 0px)); }
-    .stage { gap: 14px; }
-    .card, .hub { flex-basis: 100%; max-width: none; }
-    .card { padding: 12px; border-radius: 20px; }
-    .name { font-size: 1.25rem; margin-bottom: 2px; }
-    .status { height: 18px; margin-bottom: 4px; }
-    .grid { gap: 4px; }
-    .panel { padding: 14px; border-radius: 20px; }
-    .tier { padding: 10px; }
-  
-    /* cells stay perfectly square (same size everywhere); script.js shrinks
-       the text inside any cell that wouldn't otherwise fit, and long words
-       hyphenate instead of snapping mid-word */
-    .cell {
-      padding: 3px 2px;
-      border-radius: 10px;
-      font-size: clamp(.5rem, 2.5vw, .7rem); /* fallback without container units */
-      line-height: 1.12;
-    }
-    @supports (container-type: inline-size) {
-      .cell { font-size: clamp(.5rem, 2.9cqw, .78rem); }
-    }
-    .cell.m:after { font-size: .8rem; top: 0; right: 3px; }
+    main { padding: 12px 10px calc(40px + env(safe-area-inset-bottom, 0px)); }
   }
   @media (max-width: 420px) {
     .logo { font-size: .88rem; }
     .tab { padding: 8px 6px; font-size: .8rem; }
     .mode { padding: 8px 10px; font-size: .76rem; }
   }
+  
+  /* ============================================================
+     SETUP (EDIT) vs PLAY
+     Edit mode is a clean, dashed canvas: no marks, no wins, text cursors.
+     ============================================================ */
+  .card.edit { border-style: dashed; box-shadow: none; }
+  .status.setup { color: var(--muted); font-size: .75rem; letter-spacing: .14em; }
+  .edit .cell,
+  .edit .cell.m,
+  .edit .cell.w {
+    background: color-mix(in srgb, var(--cc) 16%, var(--card));
+    border: 1.5px dashed color-mix(in srgb, var(--cc) 55%, var(--line));
+    color: inherit;
+    text-shadow: none;
+    box-shadow: none;
+    cursor: text;
+  }
+  .edit .cell.free { cursor: not-allowed; opacity: .75; }
+  .edit .cell.m:after, .edit .cell.w:after { content: none; }
+  .edit .cell:focus { border-style: solid; border-color: var(--cc); box-shadow: 0 0 0 3px color-mix(in srgb, var(--cc) 35%, transparent); }
+  
+  /* ============================================================
+     LINE-COMPLETE FLASH + TOAST
+     ============================================================ */
+  .cell.sweep { animation: sweep .7s ease-out both; animation-delay: calc(var(--i, 0) * 80ms); z-index: 1; }
+  @keyframes sweep {
+    0%   { transform: scale(1); filter: brightness(1); }
+    35%  { transform: scale(1.12); filter: brightness(1.5); }
+    100% { transform: scale(1); filter: brightness(1); }
+  }
+  
+  .toast {
+    position: fixed;
+    left: 50%;
+    bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+    z-index: 90;
+    transform: translate(-50%, 24px);
+    opacity: 0;
+    pointer-events: none;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 12px 22px;
+    border-radius: 20px;
+    color: #fff;
+    text-align: center;
+    background: linear-gradient(90deg, var(--pink), var(--blue));
+    box-shadow: 0 12px 30px rgba(0, 0, 0, .35);
+  }
+  .toast-t { font-family: var(--head); font-size: 1.1rem; }
+  .toast-s { font-size: var(--fs-cap); opacity: .95; }
+  .toast.show { animation: toast-in 2.8s ease both; }
+  @keyframes toast-in {
+    0%   { transform: translate(-50%, 24px); opacity: 0; }
+    10%  { transform: translate(-50%, 0); opacity: 1; }
+    85%  { transform: translate(-50%, 0); opacity: 1; }
+    100% { transform: translate(-50%, 12px); opacity: 0; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .cell.sweep, .toast.show { animation: none; }
+    .toast.show { opacity: 1; transform: translate(-50%, 0); }
+  }
+  
+  /* ============================================================
+     COLLAPSIBLE HUB + LONG-PRESS POPUP
+     ============================================================ */
+  .hub-body { display: flex; flex-direction: column; gap: 14px; }
+  .hub { gap: 10px; }
+  .hub-toggle {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    width: 100%;
+    font: inherit;
+    font-family: var(--head);
+    font-weight: 700;
+    font-size: .92rem;
+    color: var(--ink);
+    padding: 13px 16px;
+    border-radius: 18px;
+    cursor: pointer;
+    background: color-mix(in srgb, var(--accent) 13%, transparent);
+    border: 1.5px solid color-mix(in srgb, var(--accent) 65%, transparent);
+  }
+  .hub-toggle .chev {
+    width: 9px;
+    height: 9px;
+    border-right: 2.5px solid var(--accent);
+    border-bottom: 2.5px solid var(--accent);
+    transform: rotate(45deg) translate(-2px, -2px);
+    transition: transform .2s;
+  }
+  .hub.open .hub-toggle .chev { transform: rotate(-135deg) translate(-2px, -2px); }
+  .hub:not(.open) .hub-body { display: none; }
+  
+  /* PC widths: the hub moves to a side column next to the card, always open */
+  @media (min-width: 1200px) {
+    .stage { flex-direction: row; align-items: flex-start; max-width: 1000px; gap: 18px; }
+    .card { flex: 0 0 560px; width: 560px; }
+    .hub { flex: 1 1 0; min-width: 0; position: sticky; top: 28px; }
+    .hub-toggle { display: none; }
+    .hub:not(.open) .hub-body { display: flex; }
+  }
+  
+  .peek { max-width: 360px; padding: 34px 24px 22px; }
+  .peek-text {
+    margin: 0;
+    font-family: var(--head);
+    font-size: 1.5rem;
+    font-weight: 700;
+    line-height: 1.3;
+    color: var(--ink);
+    overflow-wrap: break-word;
+  }
+  .peek-hint { margin: 18px 0 0; font-size: var(--fs-cap); color: var(--muted); }
+  
+  .play .cell { -webkit-touch-callout: none; touch-action: manipulation; }
   
   /* ============================================================
      REDEEM CONGRATULATIONS MODAL
