@@ -63,7 +63,7 @@
    }
    
    const defaultCard = (isPink) => ({
-     name: isPink ? "Team Pink" : "Team Blue",
+     name: isPink ? "Shai" : "James",
      cells: seedCells(),
      marks: Array(25).fill(false),
      rewards: blankRewards(),
@@ -83,6 +83,18 @@
      if (saved && saved.cards && saved.cards.length === 2) state = saved;
    } catch (e) { /* ignore corrupt storage */ }
    
+   // the sync note under the progress bar only shows up when syncing is broken
+   const SYNC_PROBLEM = /problem|unavailable/i;
+
+   // old saves still carry the placeholder names: swap them for the real ones
+   const OLD_NAMES = { "Team Blue": "James", "Team Pink": "Shai" };
+   const renameOld = card => {
+     if (OLD_NAMES[card.name]) { card.name = OLD_NAMES[card.name]; return true; }
+     return false;
+   };
+   state.cards.forEach(renameOld);
+
+   if (!Array.isArray(state.milestones)) state.milestones = [];
    state.cards.forEach(c => {
      if (!c.rewards) c.rewards = blankRewards();
      if (!c.redeemed) c.redeemed = {};
@@ -159,6 +171,8 @@
    let badgeEls = [];
    let labelEls = [];
    let synergyRefs = null; // set each render(); synced by updateSynergy()
+   let hubSummaryEl = null; // the collapsed-hub summary line (mobile)
+   let hubOpen = false;     // remembers whether the hub is expanded across re-renders
    
    function buildTabs() {
      tabsEl.innerHTML = "";
@@ -200,7 +214,29 @@
    
      synergyRefs.blueBar.style.width = (blueChecked / 50 * 100) + "%";
      synergyRefs.pinkBar.style.width = (pinkChecked / 50 * 100) + "%";
-     synergyRefs.pct.textContent = Math.round((blueChecked + pinkChecked) / 50 * 100) + "% checked";
+     const pct = Math.round((blueChecked + pinkChecked) / 50 * 100);
+     synergyRefs.pct.textContent = pct + "%";
+     const rawPct = overallPct();
+     synergyRefs.milestoneDots.forEach((dot, i) => {
+       const reached = rawPct >= MILESTONES[i].at;
+       dot.classList.toggle("got", reached);
+       dot.textContent = reached ? "" : "?"; // reached ones show a pixel icon (style.css)
+       // reached + has a message: hovering shows it in a bubble, clicking re-opens the popup
+       const clickable = reached && !!MILESTONES[i].text;
+       if (clickable) dot.dataset.msg = MILESTONES[i].text; else delete dot.dataset.msg;
+       dot.classList.toggle("clickable", clickable);
+       dot.tabIndex = clickable ? 0 : -1;
+       dot.setAttribute("role", clickable ? "button" : "img");
+       dot.setAttribute("aria-label", MILESTONES[i].at + "% milestone " + (reached ? "reached" : "not reached yet"));
+     });
+     checkMilestones();
+     if (hubSummaryEl) {
+       const prog = rewardProgress(state.cards[state.active].marks);
+       const got = REWARDS.filter(r => prog[r.id] >= r.n).length;
+       hubSummaryEl.textContent = state.mode === "edit"
+         ? "Rewards"
+         : "Rewards " + got + "/" + REWARDS.length + "  ·  " + pct + "%";
+     }
      synergyRefs.blueLabel.textContent = (state.cards[0].name || "Card 1") + ": " + blueChecked + "/25";
      synergyRefs.pinkLabel.textContent = (state.cards[1].name || "Card 2") + ": " + pinkChecked + "/25";
    }
@@ -210,6 +246,107 @@
      e.preventDefault();
      document.execCommand("insertText", false, e.clipboardData.getData("text/plain"));
    };
+   
+   /* ================================================================
+      PROGRESS MILESTONES
+      Fires a popup the first time the combined completion rate
+      (both cards, out of 50 boxes) reaches each threshold. A milestone with
+      text: null is a placeholder: it is tracked but shows nothing yet.
+      ================================================================ */
+   const MILESTONES = [
+     { at: 20,  icon: "img/potatocorner.png", wide: true, text: "CONGRATS ON REACHING 20% POTATOCORNER TIME!" },
+     { at: 50,  emoji: "📸", text: "HALFWAY THERE! PHOTOBOOTH TIME POOO!" },
+     { at: 70,  icon: "img/spotify.svg", text: "70%! MAKE A PLAYLIST THAT REMINDS YOU OF ME AND I'LL DO THE SAME <3 [3-Songs minimum]" },
+     { at: 100, icon: "img/bouquet.png", big: true, text: "100%! NEXT DATE IS ON ME, YOU PICK WHEN!" },
+   ];
+   
+   MILESTONES.forEach(m => { if (m.icon) new Image().src = m.icon; });
+
+   let milestonesReady = false; // stays false until the first cloud sync lands, so old progress doesn't replay
+   const milestoneQueue = [];
+   let milestoneShowing = false;
+   
+   const milestoneOverlay = document.createElement("div");
+   milestoneOverlay.className = "modal-overlay";
+   milestoneOverlay.innerHTML = `
+     <div class="modal-box milestone-box" role="dialog" aria-modal="true" aria-labelledby="milestoneTitle">
+       <button class="modal-close" aria-label="Close">×</button>
+       <div class="modal-emoji"></div>
+       <h2 id="milestoneTitle"></h2>
+       <div class="date-check-actions"><button class="dc-good" type="button">Yiee kilig yan</button></div>
+     </div>
+   `;
+   appEl.appendChild(milestoneOverlay);
+   const milestoneBox = milestoneOverlay.querySelector(".modal-box");
+   
+   function overallPct() {
+     const [b, p] = state.cards.map(c => c.marks.filter(Boolean).length);
+     return (b + p) / 50 * 100;
+   }
+   
+   function showNextMilestone() {
+     if (milestoneShowing || !milestoneQueue.length) return;
+     const m = milestoneQueue.shift();
+     milestoneShowing = true;
+     const iconEl = milestoneOverlay.querySelector(".modal-emoji");
+     iconEl.textContent = "";
+     iconEl.classList.toggle("big", !!m.big);
+     iconEl.classList.toggle("wide", !!m.wide);
+     if (m.icon) {
+       const img = document.createElement("img");
+       img.src = m.icon;
+       img.alt = "";
+       iconEl.appendChild(img);
+     } else {
+       iconEl.textContent = m.emoji || "";
+     }
+     milestoneOverlay.querySelector("h2").textContent = m.text;
+     milestoneOverlay.classList.add("show");
+     milestoneBox.classList.remove("pop");
+     void milestoneBox.offsetWidth; // restart animation
+     milestoneBox.classList.add("pop");
+   }
+   
+   function hideMilestone() {
+     milestoneOverlay.classList.remove("show");
+     milestoneShowing = false;
+     setTimeout(showNextMilestone, 250); // next queued one, if several were crossed at once
+   }
+   milestoneOverlay.querySelector(".modal-close").onclick = hideMilestone;
+   milestoneOverlay.querySelector(".dc-good").onclick = hideMilestone;
+   milestoneOverlay.onclick = e => { if (e.target === milestoneOverlay) hideMilestone(); };
+   document.addEventListener("keydown", e => { if (e.key === "Escape" && milestoneShowing) hideMilestone(); });
+   
+   // called whenever progress changes
+   function checkMilestones() {
+     if (!milestonesReady) return;
+     const pct = overallPct();
+     const before = state.milestones.length;
+     // progress dropped back below a threshold (e.g. Clear marks): it can fire again
+     state.milestones = state.milestones.filter(t => t <= pct);
+     let changed = state.milestones.length !== before;
+     MILESTONES.forEach(m => {
+       if (pct >= m.at && !state.milestones.includes(m.at)) {
+         state.milestones.push(m.at);
+         changed = true;
+         if (m.text) milestoneQueue.push(m);
+       }
+     });
+     if (changed) save();
+     showNextMilestone();
+   }
+   
+   // start watching once we know the real progress; whatever is already past
+   // counts as seen, so only genuinely new crossings pop up
+   function armMilestones() {
+     if (milestonesReady) return;
+     const pct = overallPct();
+     MILESTONES.forEach(m => {
+       if (pct >= m.at && !state.milestones.includes(m.at)) state.milestones.push(m.at);
+     });
+     save();
+     milestonesReady = true;
+   }
    
    /* ================================================================
       MAIN RENDER
@@ -252,7 +389,7 @@
    
      const cellEls = [];
    
-     /* ---------- rewards hub (right column) ---------- */
+     /* ---------- rewards (right column) ---------- */
      const hubEl = document.createElement("div");
      hubEl.className = "hub";
    
@@ -260,7 +397,7 @@
      rewardsPanel.className = "panel";
      rewardsPanel.innerHTML = `
        <div class="ph">
-         <h2>Rewards Hub</h2>
+         <h2>Rewards</h2>
          <span class="pill" id="unlockedCount"></span>
        </div>
        <p class="sub">Hidden prizes unlocked by completed lines</p>
@@ -271,16 +408,14 @@
        const tierEl = document.createElement("div");
        tierEl.className = "tier";
        tierEl.innerHTML = `
-         <div class="top">
-           <span class="lab"></span>
-           <span class="st"></span>
-         </div>
          <div class="body">
            <div class="ico"></div>
            <div class="tx">
+             <div class="lab"></div>
              <div class="t1"></div>
              <div class="t2"></div>
            </div>
+           <span class="st"></span>
          </div>
          <div class="pb"><i></i></div>
        `;
@@ -317,12 +452,14 @@
      synergyPanel.className = "panel";
      synergyPanel.innerHTML = `
        <div class="ph">
-         <h2>Match Synergy</h2>
+         <h2>Completion rate</h2>
          <span class="pill" id="synergyPct"></span>
        </div>
-       <div class="bar">
-         <div class="sb"></div>
-         <div class="sp"></div>
+       <div class="bar-wrap">
+         <div class="bar">
+           <div class="sb"></div>
+           <div class="sp"></div>
+         </div>
        </div>
        <div class="leg">
          <span class="lb"></span>
@@ -330,9 +467,31 @@
        </div>
        <p class="sync-note"></p>
      `;
-     synergyPanel.querySelector(".sync-note").textContent = syncStatus;
+     const syncNoteEl = synergyPanel.querySelector(".sync-note");
+     syncNoteEl.textContent = syncStatus;
+     syncNoteEl.hidden = !SYNC_PROBLEM.test(syncStatus);
+   
+     // a circle on the bar for each milestone: "?" until it's been reached
+     const milestoneDots = MILESTONES.map((m, mi) => {
+       const dot = document.createElement("span");
+       dot.className = "ms " + (mi % 2 === 0 ? "p" : "b"); // alternate pink / blue
+       dot.style.left = m.at + "%";
+       dot.dataset.at = m.at;
+       dot.textContent = "?";
+       // once reached, click (or Enter) brings its popup back
+       const reshow = () => {
+         if (!dot.classList.contains("got") || !m.text) return;
+         milestoneQueue.push(m);
+         showNextMilestone();
+       };
+       dot.onclick = reshow;
+       dot.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); reshow(); } };
+       synergyPanel.querySelector(".bar-wrap").appendChild(dot);
+       return dot;
+     });
    
      synergyRefs = {
+       milestoneDots,
        blueBar: synergyPanel.querySelector(".sb"),
        pinkBar: synergyPanel.querySelector(".sp"),
        pct: synergyPanel.querySelector("#synergyPct"),
@@ -340,17 +499,50 @@
        pinkLabel: synergyPanel.querySelector(".lp"),
      };
    
-     hubEl.append(rewardsPanel, synergyPanel);
+     const hubToggle = document.createElement("button");
+     hubToggle.type = "button";
+     hubToggle.className = "hub-toggle";
+     hubToggle.innerHTML = '<span class="hs"></span><span class="chev" aria-hidden="true"></span>';
+     hubSummaryEl = hubToggle.querySelector(".hs");
+     const hubBody = document.createElement("div");
+     hubBody.className = "hub-body";
+     hubBody.append(rewardsPanel, synergyPanel);
+     hubEl.classList.toggle("open", hubOpen);
+     hubToggle.setAttribute("aria-expanded", String(hubOpen));
+     hubToggle.onclick = () => {
+       hubOpen = !hubOpen;
+       hubEl.classList.toggle("open", hubOpen);
+       hubToggle.setAttribute("aria-expanded", String(hubOpen));
+     };
+     hubEl.append(hubToggle, hubBody);
      const unlockedCountEl = rewardsPanel.querySelector("#unlockedCount");
    
      /* ---------- refresh: recompute marks / lines / rewards ---------- */
+     let doneLines = null; // which lines were complete after the last refresh
      const refresh = (animate) => {
        const { won, count } = winningCells(card.marks);
        cellEls.forEach((el, i) => {
          el.classList.toggle("m", card.marks[i]);
          el.classList.toggle("w", won.has(i));
        });
-       statusEl.textContent = count ? ("BINGO!" + (count > 1 ? " x" + count : "")) : "";
+       statusEl.classList.toggle("setup", editing);
+       statusEl.textContent = editing
+         ? ""
+         : count ? ("BINGO!" + (count > 1 ? " x" + count : "")) : "";
+   
+       // lines that just became complete: flash them cell by cell
+       const doneNow = new Set();
+       ALL_LINES.forEach((line, li) => { if (line.every(i => card.marks[i])) doneNow.add(li); });
+       const newLines = animate && doneLines ? [...doneNow].filter(li => !doneLines.has(li)) : [];
+       doneLines = doneNow;
+       newLines.forEach(li => ALL_LINES[li].forEach((ci, pos) => {
+         const el = cellEls[ci];
+         el.style.setProperty("--i", pos);
+         el.classList.remove("sweep");
+         void el.offsetWidth; // restart animation
+         el.classList.add("sweep");
+       }));
+       const newlyUnlocked = [];
    
        const progress = rewardProgress(card.marks);
        let unlockedCount = 0;
@@ -404,10 +596,11 @@
                showRedeemModal(card.rewards[reward.id] || "Unlocked!");
              }
            };
-           refs.tier.appendChild(btn);
+           refs.tier.querySelector(".body").appendChild(btn);
            refs.redeemBtn = btn;
    
            if (!refs.wasUnlocked && animate) {
+             newlyUnlocked.push(reward.label);
              refs.tier.classList.remove("pop");
              void refs.tier.offsetWidth; // restart animation
              refs.tier.classList.add("pop");
@@ -416,9 +609,21 @@
          refs.wasUnlocked = unlocked;
        });
    
-       unlockedCountEl.textContent = editing ? "editing" : unlockedCount + " unlocked";
+       unlockedCountEl.textContent = editing ? "" : unlockedCount + " unlocked";
+       unlockedCountEl.hidden = editing;
        updateBingoBadges();
        updateSynergy();
+   
+       if (newLines.length) {
+         const everything = card.marks.every(Boolean);
+         const title = everything ? "Blackout!"
+           : newLines.length > 1 ? newLines.length + " lines complete!"
+           : newLines[0] < 5 ? "Row complete!"
+           : newLines[0] < 10 ? "Column complete!"
+           : "Diagonal complete!";
+         showToast(title, newlyUnlocked.length ? "Unlocked: " + newlyUnlocked.join(", ") : "");
+         chip(everything ? "blackout" : "line");
+       }
      };
    
      /* ---------- 25 grid cells ---------- */
@@ -429,7 +634,7 @@
    
        // diagonal position: 0 (top-left) .. 8 (bottom-right)
        const diagonalPos = Math.floor(i / 5) + (i % 5);
-       // Team Blue (card 0) is reversed: blue top-left -> pink bottom-right
+       // James (card 0) is reversed: blue top-left -> pink bottom-right
        const pinkShare = cardIndex === 0
          ? Math.round((diagonalPos / 8) * 100)
          : Math.round(100 - (diagonalPos / 8) * 100);
@@ -442,19 +647,27 @@
        cellEl.oninput = () => { card.cells[i] = cellEl.textContent; save(); syncCardSoon(cardIndex, ["cells"]); fitCellText(cellEl); };
    
        cellEl.onclick = () => {
+         if (suppressClick) { suppressClick = false; return; } // that press was a long-press
          if (state.mode !== "play" || FREE_CELLS[i]) return;
          card.marks[i] = !card.marks[i];
          save();
          refresh(true);
          syncCard(cardIndex, ["marks"]);
          playClickSfx(cardIndex);
+         chip(card.marks[i] ? "mark" : "unmark");
          cellEl.classList.remove("stamp");
          if (card.marks[i]) {
            void cellEl.offsetWidth; // restart animation
            cellEl.classList.add("stamp");
          }
        };
-       cellEl.onanimationend = e => { if (e.target === cellEl) cellEl.classList.remove("stamp"); };
+       cellEl.onanimationend = e => { if (e.target === cellEl) cellEl.classList.remove("stamp", "sweep"); };
+       cellEl.onpointerdown = e => { if (state.mode === "play") startPress(cellEl, e); };
+       cellEl.onpointermove = movePress;
+       cellEl.onpointerup = cancelPress;
+       cellEl.onpointercancel = cancelPress;
+       cellEl.onpointerleave = cancelPress;
+       cellEl.oncontextmenu = e => { if (state.mode === "play") e.preventDefault(); };
        cellEl.onpaste = pasteAsPlainText;
    
        cellEls.push(cellEl);
@@ -495,6 +708,76 @@
    }
    
    /* ================================================================
+      LONG-PRESS TO ENLARGE
+      Hold a box (Play mode) to read its question large. A normal tap
+      still marks the box; the press that opened the popup never marks.
+      ================================================================ */
+   const PRESS_MS = 450;
+   let pressTimer = null;
+   let pressOrigin = null;
+   let suppressClick = false;
+   let peekOpenedAt = 0;
+   
+   const peekOverlay = document.createElement("div");
+   peekOverlay.className = "modal-overlay";
+   peekOverlay.innerHTML = `
+     <div class="modal-box peek" role="dialog" aria-modal="true">
+       <p class="peek-text"></p>
+       <p class="peek-hint">Tap anywhere to close</p>
+     </div>
+   `;
+   appEl.appendChild(peekOverlay);
+   const peekTextEl = peekOverlay.querySelector(".peek-text");
+   
+   function hidePeek() { peekOverlay.classList.remove("show"); }
+   peekOverlay.onclick = () => { if (Date.now() - peekOpenedAt > 350) hidePeek(); };
+   document.addEventListener("keydown", e => { if (e.key === "Escape") hidePeek(); });
+   
+   function startPress(el, e) {
+     suppressClick = false;
+     clearTimeout(pressTimer);
+     pressOrigin = { x: e.clientX, y: e.clientY };
+     pressTimer = setTimeout(() => {
+       pressTimer = null;
+       suppressClick = true;
+       peekOpenedAt = Date.now();
+       peekTextEl.textContent = el.textContent;
+       peekOverlay.classList.add("show");
+       if (navigator.vibrate) navigator.vibrate(15);
+     }, PRESS_MS);
+   }
+   function movePress(e) {
+     if (!pressTimer || !pressOrigin) return;
+     if (Math.hypot(e.clientX - pressOrigin.x, e.clientY - pressOrigin.y) > 10) cancelPress();
+   }
+   function cancelPress() {
+     clearTimeout(pressTimer);
+     pressTimer = null;
+   }
+   
+   /* ================================================================
+      LINE-COMPLETE TOAST
+      ================================================================ */
+   const toastEl = document.createElement("div");
+   toastEl.className = "toast";
+   toastEl.setAttribute("role", "status");
+   toastEl.innerHTML = '<b class="toast-t"></b><span class="toast-s"></span>';
+   appEl.appendChild(toastEl);
+   let toastTimer = null;
+   
+   function showToast(title, sub) {
+     toastEl.querySelector(".toast-t").textContent = title;
+     const subEl = toastEl.querySelector(".toast-s");
+     subEl.textContent = sub;
+     subEl.style.display = sub ? "" : "none";
+     toastEl.classList.remove("show");
+     void toastEl.offsetWidth; // restart animation
+     toastEl.classList.add("show");
+     clearTimeout(toastTimer);
+     toastTimer = setTimeout(() => toastEl.classList.remove("show"), 2800);
+   }
+   
+   /* ================================================================
       CELL TEXT AUTO-FIT
       Cells are fixed squares. If a question is too long to fit at the
       normal size, step the font down (never below the floor) until it does.
@@ -510,7 +793,7 @@
      el.style.display = "block";
    
      let size = parseFloat(getComputedStyle(el).fontSize);
-     while (el.scrollHeight > el.clientHeight + 1 && size > MIN_CELL_FONT_PX) {
+     while ((el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) && size > MIN_CELL_FONT_PX) {
        size -= 0.5;
        el.style.fontSize = size + "px";
      }
@@ -524,7 +807,7 @@
    /* ================================================================
       CLICK SOUNDS
       A random voice clip plays when a box is tapped in Play mode. Only the
-      cards listed in SFX_CARDS get sounds (0 = Team Blue, 1 = Team Pink).
+      cards listed in SFX_CARDS get sounds (0 = James, 1 = Shai).
       Put the audio files in an "sfx" folder next to index.html. Any file
       that's missing just stays silent, nothing breaks.
       ================================================================ */
@@ -537,7 +820,7 @@
      "sfx/click6.mp3",
      "sfx/click7.mp3",
    ];
-   const SFX_CARDS = [1];   // only her card (Team Pink) gets sounds
+   const SFX_CARDS = [1];   // only her card (Shai) gets sounds
    const SFX_VOLUME = 1;    // 0 to 1
    
    const sfxClips = SFX_FILES.map(src => {
@@ -563,6 +846,39 @@
      clip.play().catch(() => { /* file missing or playback blocked: stay silent */ });
    }
    
+   /* ================================================================
+      8-BIT BLIPS
+      Tiny square-wave sounds made on the fly (no files needed), to go with
+      the pixel look. CHIP_VOLUME = 0 turns them off.
+      ================================================================ */
+   const CHIP_VOLUME = 0.06;
+   const CHIP_TUNES = {
+     mark:     [[880, .05], [1320, .07]],                  // coin-ish "bling"
+     unmark:   [[660, .05], [440, .07]],                   // step down
+     line:     [[523, .08], [659, .08], [784, .08], [1047, .16]],
+     blackout: [[523, .08], [659, .08], [784, .08], [1047, .1], [784, .08], [1047, .1], [1319, .28]],
+   };
+   let chipCtx = null;
+   function chip(name) {
+     if (!CHIP_VOLUME) return;
+     try {
+       chipCtx = chipCtx || new (window.AudioContext || window.webkitAudioContext)();
+       let t = chipCtx.currentTime;
+       CHIP_TUNES[name].forEach(([freq, len]) => {
+         const osc = chipCtx.createOscillator();
+         const gain = chipCtx.createGain();
+         osc.type = "square";
+         osc.frequency.value = freq;
+         gain.gain.setValueAtTime(CHIP_VOLUME, t);
+         gain.gain.setValueAtTime(0, t + len * .9);
+         osc.connect(gain).connect(chipCtx.destination);
+         osc.start(t);
+         osc.stop(t + len);
+         t += len;
+       });
+     } catch (e) { /* no audio support: stay silent */ }
+   }
+
    /* ================================================================
       LIVE SYNC (Firebase Firestore)
       Progress used to live only in each browser's localStorage. With this,
@@ -591,7 +907,7 @@
    function setSyncStatus(text) {
      syncStatus = text;
      const el = document.querySelector(".sync-note");
-     if (el) el.textContent = text;
+     if (el) { el.textContent = text; el.hidden = !SYNC_PROBLEM.test(text); }
    }
    
    // the fields of a card we store in the cloud (redeemed/rewards are normalized
@@ -630,7 +946,7 @@
        .then(() => setSyncStatus("Synced across devices"))
        .catch(err => {
          console.warn("Sync write failed:", err);
-         setSyncStatus("Sync problem: saving on this device only");
+         setSyncStatus("Sync problem: saved on this device only for now");
        });
    }
    
@@ -665,6 +981,7 @@
      const before = cardSignature(card);
    
      if (typeof data.name === "string") card.name = data.name;
+     if (renameOld(card)) syncCardSoon(i, ["name"]); // fix the cloud copy too
      if (Array.isArray(data.cells) && data.cells.length === 25) card.cells = data.cells.map(String);
      if (Array.isArray(data.marks) && data.marks.length === 25) card.marks = data.marks.map(Boolean);
      if (data.rewards) card.rewards = Object.assign(blankRewards(), data.rewards);
@@ -686,8 +1003,12 @@
    async function initRemoteSync() {
      if (!FIREBASE_CONFIG.apiKey || !FIREBASE_CONFIG.projectId) {
        setSyncStatus("Saving on this device only (sync not set up)");
+       armMilestones();
        return;
      }
+     const firstSnaps = new Set();
+     const noteFirstSnap = i => { firstSnaps.add(i); if (firstSnaps.size === 2) armMilestones(); };
+     setTimeout(armMilestones, 5000); // don't wait forever if we're offline
      try {
        const [appMod, fs] = await Promise.all([
          import(FIREBASE_SDK + "/firebase-app.js"),
@@ -702,24 +1023,29 @@
            fs.doc(syncDb, "bingo", "card" + i),
            snap => {
              if (snap.metadata.hasPendingWrites) return; // our own write, not yet confirmed
+             const firstTime = !firstSnaps.has(i);
              if (!snap.exists()) {
                // first run: put this device's copy in the cloud (but never off a
                // cache-only "doesn't exist" while we're offline)
                if (!snap.metadata.fromCache) syncCard(i, SYNC_KEYS);
+               if (firstTime) noteFirstSnap(i);
                return;
              }
              setSyncStatus("Synced across devices");
              applyRemoteCard(i, snap.data());
+             if (firstTime) noteFirstSnap(i);
            },
            err => {
              console.warn("Sync listener failed:", err);
-             setSyncStatus("Sync problem: saving on this device only");
+             setSyncStatus("Sync problem: saved on this device only for now");
+             armMilestones();
            }
          );
        });
      } catch (err) {
        console.warn("Could not start sync:", err);
-       setSyncStatus("Sync unavailable: saving on this device only");
+       setSyncStatus("Sync unavailable: saved on this device only for now");
+       armMilestones();
      }
    }
    
@@ -871,15 +1197,15 @@
    
      if (n === 1) {
        proposeContentEl.innerHTML = `
-         <h2>So, I have one last question baby</h2>
+         <h2>So, I have one question baby</h2>
          <div class="date-check-actions">
            <button class="dc-bad" data-action="removeAno" type="button">ano</button>
-           <button class="dc-good" data-action="scene2" type="button">ano yun baby?</button>
+           <button class="dc-good" data-action="scene2" type="button">ano yun baby loves sweetie cake honey bunch?</button>
          </div>
        `;
      } else if (n === 2) {
        proposeContentEl.innerHTML = `
-         <h2>Are you 100% sure you're single?</h2>
+         <h2>Are you 100% sure you're single, no other kausap?</h2>
          <div class="date-check-actions">
            <button class="dc-good" data-action="scene3" type="button">1000% single baby</button>
            <button class="dc-bad" data-action="coy" type="button">Wala ka naman siguro dito kung hindi diba?</button>
