@@ -63,8 +63,8 @@ body {
 
 /* the pixel font is only for big text: at small sizes its digits blur
    together (2 reads as 8), so small labels and numbers use the body font */
-.pill, .leg, .ms:after, .tier .st, .tier .lab, .badge, .cell.free,
-.modes small, .hub-toggle, .toast-s, .redeem {
+.pill, .leg, .ms:after, .tier .st, .badge, .cell.free,
+.modes small, .toast-s, .strip-t {
   font-family: var(--body);
   font-weight: 800;
   letter-spacing: 0;
@@ -181,6 +181,42 @@ body {
 }
 .mode.on { background: var(--accent); color: #fff; }
 
+/* ---- progress strip: the % and next milestone, for screens where the
+   completion panel is folded away (phones: in the header, tablets: above the card) ---- */
+.strip {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--ink);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.strip-bar {
+  flex: 1;
+  position: relative;
+  display: flex;
+  height: 10px;
+  border: 2px solid var(--outline);
+  background: var(--card);
+}
+.strip-bar .sb { background: var(--blue); transition: width .4s steps(4); }
+.strip-bar .sp { background: var(--pink); transition: width .4s steps(4); }
+.strip-bar .tick {
+  position: absolute;
+  top: -4px;
+  bottom: -4px;
+  width: 3px;
+  margin-left: -1px;
+  background: var(--outline);
+}
+.strip-bar .tick.got { background: var(--gold); box-shadow: 0 0 0 1px var(--outline); }
+.strip-bar .tick:last-child { margin-left: -3px; }
+.strip-t { font-size: .72rem; white-space: nowrap; }
+
 .help {
   margin-top: 6px;
   font: inherit;
@@ -271,9 +307,9 @@ main {
   justify-content: center;
   text-align: center;
   padding: 4px 3px;
-  font-size: clamp(.55rem, 2.5vw, .72rem); /* fallback for browsers without container query units */
+  font-size: clamp(.66rem, 3.2vw, .95rem); /* fallback for browsers without container query units */
   font-weight: 700;
-  line-height: 1.15;
+  line-height: 1.12;
   overflow: hidden;
   overflow-wrap: normal; /* words stay whole; script.js shrinks the font until the longest word fits */
   hyphens: manual;
@@ -286,6 +322,10 @@ main {
   transition: transform .06s, box-shadow .06s;
 }
 .cell.fitting { display: block; } /* only while script.js measures the text */
+/* the stamp / sparkle (which animate past the edges) must not count as overflowing text */
+.cell.fitting:before, .cell.fitting:after { display: none; }
+/* set by script.js when a question can't fit with whole words at a readable size */
+.cell.hyph { overflow-wrap: anywhere; } /* script.js adds soft hyphens; breaking anywhere is the last resort */
 .cell:empty:before {
   content: attr(data-n);
   color: color-mix(in srgb, var(--cc) 55%, transparent);
@@ -293,13 +333,11 @@ main {
   font-weight: 700;
 }
 .cell.free {
-  font-size: clamp(.46rem, 1.5vw, .72rem);
   cursor: default;
   background: repeating-conic-gradient(color-mix(in srgb, var(--cc) 30%, var(--card)) 0 25%, color-mix(in srgb, var(--cc) 16%, var(--card)) 0 50%) 0 0 / 12px 12px;
 }
 @supports (container-type: inline-size) {
-  .cell { font-size: clamp(.58rem, 3.3cqw, .95rem); }
-  .cell.free { font-size: clamp(.44rem, 2.6cqw, .74rem); }
+  .cell { font-size: clamp(.66rem, 3.7cqw, .95rem); }
   .cell:empty:before { font-size: clamp(.56rem, 2.4cqw, .82rem); }
 }
 
@@ -419,6 +457,14 @@ main {
   text-underline-offset: 3px;
 }
 .edit .reset { display: none; }
+.reset.armed {
+  color: #fff;
+  background: #d9455f;
+  border: 2px solid var(--outline);
+  box-shadow: 2px 2px 0 var(--outline);
+  text-decoration: none;
+  animation: modal-shake .35s ease;
+}
 
 /* ============================================================
    HUB (rewards + completion rate)
@@ -445,7 +491,10 @@ main {
   justify-content: space-between;
   gap: 10px;
   width: 100%;
-  font-size: 1.1rem;
+  font: inherit;
+  font-family: var(--head);
+  font-weight: 600;
+  font-size: 1.15rem;
   color: var(--ink);
   padding: 13px 16px;
   cursor: pointer;
@@ -460,40 +509,59 @@ main {
 }
 .hub.open .hub-toggle .chev { transform: rotate(-135deg) translate(-2px, -2px); }
 
-.ph { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ph {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 10px;
+  margin-bottom: 12px;
+  border-bottom: 2px dashed color-mix(in srgb, var(--outline) 35%, transparent);
+}
 .ph h2 { margin: 0; font-family: var(--head); font-size: 1.3rem; font-weight: 700; color: var(--ink); }
-.sub { margin: 2px 0 12px; font-size: var(--fs-cap); color: var(--muted); }
 
+/* small pixel badges with a bevel, like a game HUD */
 .pill {
-  font-size: .8rem;
-  padding: 3px 10px;
+  font-size: .78rem;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: 3px 9px;
   border: 2px solid var(--outline);
   background: var(--accent);
   color: #fff;
   white-space: nowrap;
+  box-shadow: 2px 2px 0 var(--outline), inset -2px -2px 0 rgba(0, 0, 0, .2), inset 2px 2px 0 rgba(255, 255, 255, .3);
 }
 
-/* ---- one reward row: [icon] label / title / hint [status | Redeem] ---- */
+/* ---- one reward row: [icon] title / hint [status | Redeem] ---- */
+/* locked prizes sit on a faint pixel checker, like a mystery box */
 .tier {
   padding: 10px 12px;
-  background: color-mix(in srgb, var(--accent) 10%, var(--card));
+  background: repeating-conic-gradient(color-mix(in srgb, var(--accent) 7%, var(--card)) 0 25%, color-mix(in srgb, var(--accent) 13%, var(--card)) 0 50%) 0 0 / 8px 8px;
   border: 2px solid var(--outline);
-  margin-bottom: 8px;
+  box-shadow: 2px 2px 0 var(--outline);
+  margin-bottom: 10px;
 }
 .tier:last-child { margin-bottom: 0; }
 .tier .body { display: flex; align-items: center; gap: 12px; }
-.tier .lab { font-size: .72rem; opacity: .75; }
-.tier .st { font-size: .72rem; white-space: nowrap; opacity: .8; }
+.tier .st {
+  font-size: .72rem;
+  white-space: nowrap;
+  padding: 1px 6px;
+  border: 2px solid var(--outline);
+  background: var(--card);
+}
 .tier .tx { min-width: 0; flex: 1; }
 .tier .t1 {
-  font-weight: 800;
-  font-size: var(--fs-body);
+  font-family: var(--head);
+  font-weight: 600;
+  font-size: 1.08rem;
   outline: none;
   word-break: break-word;
   margin: 1px 0;
 }
 .tier .t1:empty:before { content: attr(data-ph); opacity: .55; }
-.tier .t2 { font-size: var(--fs-cap); color: var(--muted); }
+.tier .t2 { font-size: var(--fs-cap); font-weight: 700; color: var(--muted); }
 
 /* locked = pixel padlock, unlocked = pixel heart */
 .tier .ico {
@@ -520,14 +588,14 @@ main {
 .redeem {
   flex-shrink: 0;
   font: inherit;
-  font-family: var(--body);
-  font-weight: 800;
-  font-size: .95rem;
+  font-family: var(--head);
+  font-weight: 600;
+  font-size: 1rem;
   border: 2px solid var(--outline);
-  padding: 8px 16px;
+  padding: 7px 14px;
   background: #fff;
   color: var(--accent);
-  box-shadow: 2px 2px 0 var(--outline);
+  box-shadow: 2px 2px 0 var(--outline), inset -2px -2px 0 rgba(0, 0, 0, .12);
   cursor: pointer;
 }
 .redeem.done { background: rgba(255, 255, 255, .3); color: #fff; }
@@ -758,7 +826,10 @@ main {
   border: var(--px) solid var(--outline);
   box-shadow: var(--drop);
   text-shadow: 1px 1px 0 var(--outline);
+  width: max-content;
+  max-width: min(360px, calc(100vw - 32px));
 }
+.toast.over { z-index: 110; } /* photo results show above the popup, below the tour */
 .toast-t { font-family: var(--head); font-size: 1.3rem; }
 .toast-s { font-size: var(--fs-cap); opacity: .95; }
 .toast.show { animation: toast-in 2.8s ease both; }
@@ -876,6 +947,33 @@ main {
   letter-spacing: .02em;
   text-wrap: balance;
 }
+.ms-photo { display: flex; flex-direction: column; align-items: center; gap: 10px; margin: -12px 0 22px; }
+.ms-photo img {
+  display: block;
+  max-width: 100%;
+  max-height: 46vh;
+  border: var(--px) solid var(--outline);
+  box-shadow: 4px 4px 0 var(--outline);
+  background: #fff;
+  padding: 6px;
+}
+.photo-btn {
+  font: inherit;
+  font-family: var(--head);
+  font-weight: 600;
+  font-size: .95rem;
+  border: 2px solid var(--outline);
+  background: var(--card);
+  color: var(--ink);
+  padding: 6px 14px;
+  box-shadow: 2px 2px 0 var(--outline);
+  cursor: pointer;
+}
+.photo-btn:active:not(:disabled) { transform: translate(2px, 2px); box-shadow: none; }
+.photo-btn:disabled { opacity: .6; cursor: default; }
+/* the photo takes the place of the camera emoji */
+.milestone-box .modal-emoji[hidden] + h2 { margin-bottom: 22px; }
+
 @media (max-width: 400px) {
   .milestone-box { padding: 40px 22px 24px; }
 }
@@ -961,12 +1059,52 @@ main {
    RESPONSIVE
    ============================================================ */
 /* PC widths: the hub moves to a side column next to the card, always open */
-@media (min-width: 1200px) {
+/* tablets and computers: the sidebar stays put while the page scrolls,
+   so the tabs, Mode buttons and ? are always reachable */
+@media (min-width: 721px) {
+  .side {
+    position: sticky;
+    top: 0;
+    align-self: flex-start;
+    height: 100vh;
+    height: 100dvh;
+    overflow-y: auto;
+  }
+}
+
+/* portrait tablets: the panels are folded below the card, so the
+   progress strip is pinned across the top of the main area */
+@media (min-width: 721px) and (max-width: 999px) {
+  html { scroll-padding-top: 60px; }
+  main { padding-top: 70px; }
+  .strip {
+    display: flex;
+    position: fixed;
+    top: 0;
+    left: 230px; /* the sidebar's width */
+    right: 0;
+    z-index: 20;
+    gap: 12px;
+    width: auto;
+    padding: 12px max(20px, calc((100% - 790px) / 2)); /* lines up with the card */
+    background: var(--bg);
+    border-bottom: var(--px) solid var(--outline);
+  }
+  .strip-bar { height: 14px; }
+  .strip-t { font-size: .85rem; }
+}
+
+/* landscape tablets and up: Rewards + Completion sit beside the card, always open */
+@media (min-width: 1000px) {
   .stage { flex-direction: row; align-items: flex-start; max-width: 1000px; gap: 18px; }
-  .card { flex: 0 0 560px; width: 560px; }
-  .hub { flex: 1 1 0; min-width: 0; position: sticky; top: 28px; }
+  .card { flex: 1 1 auto; min-width: 0; max-width: 560px; }
+  .hub { flex: 0 0 310px; position: sticky; top: 28px; }
   .hub-toggle { display: none; }
   .hub:not(.open) .hub-body { display: flex; }
+}
+@media (min-width: 1200px) {
+  .card { flex: 0 0 560px; width: 560px; }
+  .hub { flex: 1 1 0; min-width: 0; }
 }
 
 /* phones: compact sticky header with the logo, then card switch + mode switch */
@@ -982,7 +1120,8 @@ main {
     grid-template-columns: 1fr auto;
     grid-template-areas:
       "logo logo"
-      "tabs modes";
+      "tabs modes"
+      "strip strip";
     align-items: center;
     gap: 8px 10px;
     border-right: 0;
@@ -1028,7 +1167,14 @@ main {
   }
   .help .x { display: none; }
 
-  main { padding: 12px 10px calc(40px + env(safe-area-inset-bottom, 0px)); }
+  /* slim progress strip in the sticky header: always in view while scrolling the card */
+  .strip { grid-area: strip; display: flex; }
+
+  /* tighter frame on phones so the boxes (and their text) get wider */
+  main { padding: 10px 6px calc(40px + env(safe-area-inset-bottom, 0px)); }
+  .card { padding: 12px 6px 8px; box-shadow: 4px 4px 0 var(--outline); }
+  .grid { gap: 4px; }
+  .cell { padding: 3px 2px; }
 
 }
 @media (max-width: 420px) {
@@ -1038,7 +1184,7 @@ main {
 
 @media (prefers-reduced-motion: reduce) {
   .cell.stamp, .cell.stamp:after, .cell.sweep, .cell.sweep:before, .tier.pop, .tier.pop .ico,
-  .modal-box.pop, .modal-box.shake, .toast.show, .tour-bubble.pop { animation: none; }
+  .modal-box.pop, .modal-box.shake, .toast.show, .tour-bubble.pop, .reset.armed { animation: none; }
   .tour-hole { transition: none; }
   .toast.show { opacity: 1; transform: translate(-50%, 0); }
 }

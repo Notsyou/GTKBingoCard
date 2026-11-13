@@ -4,10 +4,10 @@
 const STORAGE_KEY = "bingo-v2";
 
 const REWARDS = [
-  { id: "h",   label: "One horizontal line", hint: "Complete any full row",     n: 5  },
-  { id: "v",   label: "One vertical line",   hint: "Complete any full column",  n: 5  },
-  { id: "d",   label: "One diagonal line",   hint: "Corner to opposite corner", n: 5  },
-  { id: "all", label: "Full card blackout",  hint: "Check every box",           n: 25 },
+  { id: "h",   label: "Row prize",      hint: "Finish any row",    n: 5  },
+  { id: "v",   label: "Column prize",   hint: "Finish any column", n: 5  },
+  { id: "d",   label: "Diagonal prize", hint: "Corner to corner",  n: 5  },
+  { id: "all", label: "Blackout prize", hint: "Mark every box",    n: 25 },
 ];
 
 // boxes that are permanently checked and can't be edited/unmarked
@@ -51,7 +51,7 @@ const CONTENT_VERSION = 1;
 // reaches each threshold
 const MILESTONES = [
   { at: 30,  icon: "img/potatocorner.png", wide: true, text: "CONGRATS ON REACHING 30% POTATOCORNER TIME!" },
-  { at: 50,  emoji: "📸", text: "HALFWAY THERE! PHOTOBOOTH TIME POOO!" },
+  { at: 50,  emoji: "📸", photo: true, text: "HALFWAY THERE! PHOTOBOOTH TIME POOO!" },
   { at: 70,  icon: "img/spotify.svg", text: "70%! MAKE A PLAYLIST THAT REMINDS YOU OF ME AND I'LL DO THE SAME <3 [3-Songs minimum]" },
   { at: 100, icon: "img/bouquet.png", big: true, text: "100%! NEXT DATE IS ON ME, YOU PICK WHEN!" },
 ];
@@ -153,6 +153,7 @@ const tabsEl = document.getElementById("tabs");
 const editBtn = document.getElementById("bEdit");
 const playBtn = document.getElementById("bPlay");
 const helpBtn = document.getElementById("bHelp");
+const stripEl = document.getElementById("strip");
 
 function el(tag, className, html) {
   const node = document.createElement(tag);
@@ -185,49 +186,112 @@ function pasteAsPlainText(e) {
 /* ================================================================
    CELL TEXT AUTO-FIT
    Cells are fixed-size boxes. When a question doesn't fit at the
-   stylesheet size, shrink the font (never below the floor) until it
-   does. All cells are measured together, so each pass costs one
-   layout instead of one per cell per step, and results are cached by
+   stylesheet size, shrink the font until it does, in three steps:
+     1. shrink a little, keeping words whole, but not below
+        COMFORT_FONT_PX (a hyphen beats much smaller text)
+     2. still too long: allow hyphenation (relation-ship) and shrink
+        again, down to READABLE_FONT_PX
+     3. only if that still doesn't fit (very narrow phones): shrink
+        further, down to LAST_RESORT_FONT_PX, so nothing gets cut off
+   All cells are measured together, so each pass costs one layout
+   instead of one per cell per step, and results are cached by
    width + text so re-renders (tab / mode switches) don't measure again.
    ================================================================ */
-const MIN_CELL_FONT_PX = 6.5;
+const COMFORT_FONT_PX = 12;
+const READABLE_FONT_PX = 10.5;
+const LAST_RESORT_FONT_PX = 7;
 const FONT_STEP_PX = 0.5;
 const fitCache = new Map();
+
+// Hyphenation points we add ourselves (soft hyphens: invisible unless the
+// line breaks there), since some browsers have no hyphenation dictionary
+// and would otherwise break words anywhere ("relationshi-p"). Rough
+// English syllable rules: split before a consonant that starts a new
+// syllable (vaca-tion, moun-tain), never inside th/sh/ch/ph/ck/ng/qu/wh/gh,
+// keep 3+ letters on each side. Only used outside Edit mode, so the
+// saved questions never contain them.
+const SOFT_HYPHEN = "\u00AD";
+const plainText = text => text.replace(/[\u00AD\u200B]/g, "");
+const isVowel = ch => /[aeiouy]/i.test(ch);
+const DIGRAPH = /^(th|sh|ch|ph|ck|ng|qu|wh|gh)$/i;
+
+function softHyphenate(text) {
+  const words = text.replace(/[A-Za-z]{7,}/g, word => {
+    let out = "", last = 0;
+    for (let k = 3; k <= word.length - 3; k++) {
+      const [prev, a, b, c, next] = [word[k - 2], word[k - 1], word[k], word[k + 1], word[k + 2]];
+      const pair = b + c;
+      const ok =
+        (isVowel(a) && !isVowel(b) && isVowel(c)) ||                                       // vaca|tion
+        (isVowel(a) && DIGRAPH.test(pair) && isVowel(next || "")) ||                        // some|thing
+        (!isVowel(a) && /^(sh|ch|ph)$/i.test(pair) && isVowel(prev)) ||                     // relation|ship
+        (!isVowel(a) && !isVowel(b) && isVowel(c) && isVowel(prev) && !DIGRAPH.test(a + b)); // moun|tain
+      if (ok && k - last >= 2) { out += word.slice(last, k) + SOFT_HYPHEN; last = k; }
+    }
+    return out + word.slice(last);
+  });
+  return words.replace(/\//g, "/\u200B"); // birthday/ date
+}
 
 const overflows = node =>
   node.scrollHeight > node.clientHeight + 1 || node.scrollWidth > node.clientWidth + 1;
 
-function fitCells(cells) {
-  // measure as plain blocks so overflow is reported accurately
-  // (a vertically centered flex box hides the part sticking out on top)
-  cells.forEach(c => { c.style.fontSize = ""; c.classList.add("fitting"); });
+// For each job ({ c, base }) find the largest size, in FONT_STEP_PX steps
+// down from base, that fits but isn't below floor. Sets job.size, and
+// job.fits = false when even the floor overflows.
+function shrinkToFit(jobs, floor) {
+  jobs.forEach(j => { j.c.style.fontSize = j.base + "px"; });
+  jobs.forEach(j => { j.fits = !overflows(j.c); j.size = j.base; });
+  const tooBig = jobs.filter(j => !j.fits && j.base > floor);
+  tooBig.forEach(j => { j.c.style.fontSize = floor + "px"; });
+  tooBig.forEach(j => { j.fits = !overflows(j.c); j.size = floor; });
 
-  const jobs = cells.map(c => {
-    const base = parseFloat(getComputedStyle(c).fontSize);
-    return { c, base, key: c.clientWidth + "|" + base + "|" + c.textContent };
-  });
-  const todo = [];
-  jobs.forEach(job => {
-    if (fitCache.has(job.key)) job.size = fitCache.get(job.key);
-    else if (job.base <= MIN_CELL_FONT_PX || !overflows(job.c)) job.size = job.base;
-    else {
-      // binary search for the fewest FONT_STEP_PX steps down that fit
-      job.lo = 1;
-      job.hi = Math.ceil((job.base - MIN_CELL_FONT_PX) / FONT_STEP_PX);
-      todo.push(job);
-    }
-  });
-
-  let open = todo;
+  // binary search between base (overflows) and floor (fits)
+  let open = tooBig.filter(j => j.fits);
+  open.forEach(j => { j.lo = 1; j.hi = Math.ceil((j.base - floor) / FONT_STEP_PX); });
+  const searched = open;
   while (open.length) {
-    open.forEach(j => { j.mid = (j.lo + j.hi) >> 1; j.c.style.fontSize = (j.base - j.mid * FONT_STEP_PX) + "px"; });
+    open.forEach(j => { j.mid = (j.lo + j.hi) >> 1; j.c.style.fontSize = Math.max(floor, j.base - j.mid * FONT_STEP_PX) + "px"; });
     open.forEach(j => { if (overflows(j.c)) j.lo = j.mid + 1; else j.hi = j.mid; });
     open = open.filter(j => j.lo < j.hi);
   }
-  todo.forEach(j => { j.size = j.base - j.lo * FONT_STEP_PX; });
+  searched.forEach(j => { j.size = Math.max(floor, j.base - j.lo * FONT_STEP_PX); });
+}
+
+function fitCells(cells) {
+  // measure as plain blocks so overflow is reported accurately
+  // (a vertically centered flex box hides the part sticking out on top)
+  cells.forEach(c => {
+    c.style.fontSize = "";
+    c.classList.remove("hyph");
+    if (!c.isContentEditable && c.textContent !== plainText(c.textContent)) c.textContent = plainText(c.textContent);
+    c.classList.add("fitting");
+  });
+
+  const jobs = cells.map(c => {
+    const base = parseFloat(getComputedStyle(c).fontSize);
+    return { c, base, key: c.clientWidth + "|" + base + "|" + c.isContentEditable + "|" + c.textContent };
+  });
+  // hyphenation mode: our own hyphen points (never while editing the text)
+  const hyphenate = j => {
+    j.hyph = true;
+    j.c.classList.add("hyph");
+    if (!j.c.isContentEditable) j.c.textContent = softHyphenate(j.c.textContent);
+  };
+  const todo = jobs.filter(j => {
+    const hit = fitCache.get(j.key);
+    if (hit) { j.size = hit.size; if (hit.hyph) hyphenate(j); }
+    return !hit;
+  });
+
+  shrinkToFit(todo, COMFORT_FONT_PX);
+  const long = todo.filter(j => !j.fits);
+  long.forEach(hyphenate);
+  shrinkToFit(long, READABLE_FONT_PX);
+  shrinkToFit(long.filter(j => !j.fits), LAST_RESORT_FONT_PX);
 
   jobs.forEach(j => {
-    fitCache.set(j.key, j.size);
+    fitCache.set(j.key, { size: j.size, hyph: !!j.hyph });
     j.c.style.fontSize = j.size === j.base ? "" : j.size + "px";
     j.c.classList.remove("fitting");
   });
@@ -300,6 +364,8 @@ const CHIP_TUNES = {
   line:     [[523, .08], [659, .08], [784, .08], [1047, .16]],
   blackout: [[523, .08], [659, .08], [784, .08], [1047, .1], [784, .08], [1047, .1], [1319, .28]],
   redeem:   [[988, .07], [1319, .12], [0, .04], [1568, .06], [2093, .22]], // coin pickup + sparkle
+  // milestone popups: a quick rising run, then a held "ta-daa", like a level up
+  levelup:  [[392, .06], [523, .06], [659, .06], [784, .06], [1047, .06], [0, .05], [784, .07], [1047, .07], [1319, .07], [1568, .32]],
 };
 let chipCtx = null;
 
@@ -381,7 +447,10 @@ toastEl.setAttribute("role", "status");
 appEl.appendChild(toastEl);
 let toastTimer = null;
 
-function showToast(title, sub) {
+// over = also show above an open popup (the photo results); other toasts
+// stay under popups so they never cover a popup's buttons
+function showToast(title, sub, over) {
+  toastEl.classList.toggle("over", !!over);
   toastEl.querySelector(".toast-t").textContent = title;
   const subEl = toastEl.querySelector(".toast-s");
   subEl.textContent = sub;
@@ -405,6 +474,11 @@ const milestoneOverlay = makeOverlay(`
     <button class="modal-close" aria-label="Close">×</button>
     <div class="modal-emoji"></div>
     <h2 id="milestoneTitle"></h2>
+    <div class="ms-photo" hidden>
+      <img alt="Our photobooth photo" hidden>
+      <button class="photo-btn" type="button"></button>
+      <input type="file" accept="image/*" hidden>
+    </div>
     <div class="date-check-actions"><button class="dc-good" type="button">Yiee kilig yan</button></div>
   </div>
 `, hideMilestone);
@@ -418,6 +492,7 @@ function showNextMilestone() {
   const m = milestoneQueue.shift();
   milestoneShowing = true;
   milestoneIcon.textContent = "";
+  milestoneIcon.hidden = false;
   milestoneIcon.classList.toggle("big", !!m.big);
   milestoneIcon.classList.toggle("wide", !!m.wide);
   if (m.icon) {
@@ -429,12 +504,15 @@ function showNextMilestone() {
     milestoneIcon.textContent = m.emoji || "";
   }
   milestoneOverlay.querySelector("h2").textContent = m.text;
+  renderMilestonePhoto(m);
   milestoneOverlay.classList.add("show");
+  setTimeout(() => chip("levelup"), 120); // after the tap's own blip
   replay(milestoneBox, "pop");
 }
 
 function hideMilestone() {
   milestoneOverlay.classList.remove("show");
+  photoMilestone = null;
   milestoneShowing = false;
   setTimeout(() => {
     showNextMilestone(); // next queued one, if several were crossed at once
@@ -442,6 +520,97 @@ function hideMilestone() {
     showMilestoneHint();
     flushHints();
   }, 250);
+}
+
+/* ---------- the photobooth photo (on milestones with photo: true) ----------
+   Shrunk to a small JPEG so it fits in the Firestore database (doc
+   bingo/photos), which syncs it to both phones without paid storage. */
+const PHOTOS_KEY = "bingo-photos";
+const PHOTO_MAX_SIDE = 1400;     // px, longest side
+const PHOTO_MAX_CHARS = 450000;  // ~330 KB; a Firestore doc holds up to 1 MB
+let photos = {};
+try { photos = JSON.parse(localStorage.getItem(PHOTOS_KEY)) || {}; } catch {}
+let photoMilestone = null; // the photo milestone whose popup is open
+
+const photoBox = milestoneOverlay.querySelector(".ms-photo");
+const photoImg = photoBox.querySelector("img");
+const photoBtn = photoBox.querySelector(".photo-btn");
+const photoInput = photoBox.querySelector("input");
+photoBtn.onclick = () => photoInput.click();
+
+function renderMilestonePhoto(m) {
+  photoMilestone = m.photo ? m : null;
+  photoBox.hidden = !m.photo;
+  const src = m.photo && photos[m.at];
+  milestoneIcon.hidden = !!src; // the photo takes the emoji's place
+  photoImg.hidden = !src;
+  if (src) photoImg.src = src;
+  if (m.photo) photoBtn.textContent = src ? "Change photo" : "Add our photo 📸";
+}
+
+photoInput.onchange = async () => {
+  const file = photoInput.files[0];
+  photoInput.value = "";
+  const m = photoMilestone;
+  if (!file || !m) return;
+  photoBtn.disabled = true;
+  photoBtn.textContent = "Saving...";
+  try {
+    photos[m.at] = await shrinkPhoto(file);
+    try { localStorage.setItem(PHOTOS_KEY, JSON.stringify(photos)); } catch {}
+    syncPhoto(m.at);
+  } catch (err) {
+    showToast("Couldn't use that photo", "Try a different picture", true);
+  }
+  photoBtn.disabled = false;
+  if (photoMilestone === m) renderMilestonePhoto(m);
+};
+
+function loadImage(url) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = reject;
+    img.src = url;
+  });
+}
+
+// resize + recompress until the JPEG is small enough to sync
+async function shrinkPhoto(file) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await loadImage(url);
+    for (let side = PHOTO_MAX_SIDE; side >= 300; side = Math.round(side * .75)) {
+      const scale = Math.min(1, side / Math.max(img.naturalWidth, img.naturalHeight));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(img.naturalWidth * scale);
+      canvas.height = Math.round(img.naturalHeight * scale);
+      canvas.getContext("2d").drawImage(img, 0, 0, canvas.width, canvas.height);
+      for (const quality of [.82, .72, .62]) {
+        const data = canvas.toDataURL("image/jpeg", quality);
+        if (data.length <= PHOTO_MAX_CHARS) return data;
+      }
+    }
+    throw new Error("photo too large");
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+// a photo arrived from the other phone
+function applyRemotePhotos(data, live) {
+  let changed = false;
+  for (const key in data) {
+    const at = Number(key.slice(1));
+    const src = data[key];
+    if (!/^p\d+$/.test(key) || typeof src !== "string" || !src.startsWith("data:image/") || photos[at] === src) continue;
+    photos[at] = src;
+    changed = true;
+  }
+  if (!changed) return;
+  try { localStorage.setItem(PHOTOS_KEY, JSON.stringify(photos)); } catch {}
+  if (photoMilestone) renderMilestonePhoto(photoMilestone);
+  if (live) showToast("New photo added!", "Tap the 50% surprise to see it");
 }
 
 // called whenever progress changes
@@ -504,7 +673,7 @@ function startPress(cellEl, e) {
     pressTimer = null;
     suppressClick = true;
     peekOpenedAt = Date.now();
-    peekTextEl.textContent = cellEl.textContent;
+    peekTextEl.textContent = plainText(cellEl.textContent);
     peekOverlay.classList.add("show");
     if (navigator.vibrate) navigator.vibrate(15);
   }, PRESS_MS);
@@ -555,12 +724,38 @@ function setSyncStatus(text) {
   if (hub) { hub.syncNote.textContent = text; hub.syncNote.hidden = !SYNC_PROBLEM.test(text); }
 }
 
+/* the slim progress strip under the phone header */
+const strip = {
+  blue: stripEl.querySelector(".sb"),
+  pink: stripEl.querySelector(".sp"),
+  text: stripEl.querySelector(".strip-t"),
+  ticks: MILESTONES.map(m => {
+    const tick = el("span", "tick");
+    tick.style.left = m.at + "%";
+    stripEl.querySelector(".strip-bar").appendChild(tick);
+    return tick;
+  }),
+};
+stripEl.onclick = () => {
+  openHub();
+  if (hub) hub.completionPanel.scrollIntoView({ block: "center", behavior: "smooth" });
+};
+
+function updateStrip(blue, pink, rawPct) {
+  strip.blue.style.width = (blue / 50 * 100) + "%";
+  strip.pink.style.width = (pink / 50 * 100) + "%";
+  const next = MILESTONES.find(m => m.at > rawPct);
+  strip.text.textContent = Math.round(rawPct) + "%" + (next ? "  ·  next ? at " + next.at + "%" : "  ·  all surprises found!");
+  strip.ticks.forEach((tick, k) => tick.classList.toggle("got", rawPct >= MILESTONES[k].at));
+}
+
 // completion bar, milestone markers and the collapsed-hub summary
 function updateHub() {
-  if (!hub) return;
   const [blue, pink] = state.cards.map(checkedCount);
   const rawPct = overallPct();
   const pct = Math.round(rawPct);
+  updateStrip(blue, pink, rawPct);
+  if (!hub) return;
 
   hub.blueBar.style.width = (blue / 50 * 100) + "%";
   hub.pinkBar.style.width = (pink / 50 * 100) + "%";
@@ -606,7 +801,6 @@ function buildHub() {
 
   const rewardsPanel = el("div", "panel", `
     <div class="ph"><h2>Rewards</h2><span class="pill"></span></div>
-    <p class="sub">Hidden prizes unlocked by completed lines</p>
   `);
 
   const completionPanel = el("div", "panel", `
@@ -689,7 +883,7 @@ function render() {
     const tier = el("div", "tier", `
       <div class="body">
         <div class="ico"></div>
-        <div class="tx"><div class="lab"></div><div class="t1"></div><div class="t2"></div></div>
+        <div class="tx"><div class="t1"></div><div class="t2"></div></div>
         <span class="st"></span>
       </div>
       <div class="pb"><i></i></div>
@@ -700,12 +894,12 @@ function render() {
       body: tier.querySelector(".body"),
       status: tier.querySelector(".st"),
       title: tier.querySelector(".t1"),
+      hint: tier.querySelector(".t2"),
       bar: tier.querySelector(".pb i"),
       btn: null,
       wasUnlocked: false,
     };
-    tier.querySelector(".lab").textContent = reward.label;
-    tier.querySelector(".t2").textContent = reward.hint;
+    t.hint.textContent = reward.hint;
 
     if (editing) {
       tier.querySelector(".pb").style.display = "none";
@@ -779,7 +973,8 @@ function render() {
       const redeemed = !!card.redeemed[reward.id];
       t.tier.classList.toggle("got", unlocked);
       t.bar.style.width = Math.min(100, progress[reward.id] / reward.n * 100) + "%";
-      t.status.textContent = unlocked ? "UNLOCKED" : progress[reward.id] + "/" + reward.n + " boxes";
+      t.status.textContent = progress[reward.id] + "/" + reward.n;
+      t.hint.textContent = unlocked ? reward.label : reward.hint;
       t.title.textContent = !unlocked ? "Hidden reward"
         : redeemed ? (card.rewards[reward.id] || "Unlocked!")
         : "Click to redeem";
@@ -849,7 +1044,7 @@ function render() {
         card.marks[i] = !card.marks[i];
         save();
         refresh(true);
-        syncCard(cardIndex, ["marks"]);
+        syncMark(cardIndex, i);
         playClickSfx(cardIndex);
         chip(card.marks[i] ? "mark" : "unmark");
         if (card.marks[i]) replay(cellEl, "stamp");
@@ -868,12 +1063,26 @@ function render() {
 
   const resetBtn = el("button", "reset");
   resetBtn.textContent = "Clear marks";
+  let armTimer = null;
+  const disarm = () => {
+    clearTimeout(armTimer);
+    resetBtn.classList.remove("armed");
+    resetBtn.textContent = "Clear marks";
+  };
   resetBtn.onclick = () => {
+    // first tap only asks; a second tap within 3 seconds really clears
+    if (!resetBtn.classList.contains("armed")) {
+      resetBtn.textContent = "Tap again to clear!";
+      replay(resetBtn, "armed");
+      armTimer = setTimeout(disarm, 3000);
+      return;
+    }
+    disarm();
     card.marks.fill(false);
     applyFreeCells(card);
     card.redeemed = {};
     save();
-    syncCard(cardIndex, ["marks", "redeemed"]);
+    syncClear(cardIndex);
     refresh(false);
     chipNuke();
   };
@@ -936,12 +1145,63 @@ function cardPayload(card, keys) {
 // write the given fields of one card to the cloud right away
 function syncCard(i, keys) {
   if (!syncDb) return;
-  syncFs.setDoc(syncFs.doc(syncDb, "bingo", "card" + i), cardPayload(state.cards[i], keys), { merge: true })
+  return syncFs.setDoc(syncFs.doc(syncDb, "bingo", "card" + i), cardPayload(state.cards[i], keys), { merge: true })
     .then(() => setSyncStatus("Synced across devices"))
     .catch(err => {
       console.warn("Sync write failed:", err);
       setSyncStatus("Sync problem: saved on this device only for now");
     });
+}
+
+function syncPhoto(at) {
+  if (!syncDb) { showToast("Photo saved on this phone", "It will not sync while offline", true); return; }
+  syncFs.setDoc(syncFs.doc(syncDb, "bingo", "photos"), { ["p" + at]: photos[at] }, { merge: true })
+    .then(() => showToast("Photo saved!", "Both phones can see it now", true))
+    .catch(err => {
+      console.warn("Photo sync failed:", err);
+      showToast("Photo saved on this phone only", "Couldn't send it to the other phone", true);
+    });
+}
+
+// One box was tapped: change just that box on the server, inside a
+// transaction (read the latest marks, flip one, write back). Sending the
+// whole marks list instead would let two phones tapping at the same
+// moment undo each other's tap. Taps on a card are sent in order.
+const markChain = [Promise.resolve(), Promise.resolve()];
+// taps the server hasn't confirmed yet: box -> { marked, sending }
+// (sending counts the taps on that box still on their way)
+const pendingMarks = [new Map(), new Map()];
+
+function syncMark(i, box) {
+  if (!syncDb) return;
+  const value = state.cards[i].marks[box];
+  const pending = pendingMarks[i].get(box) || { sending: 0 };
+  pending.marked = value;
+  pending.sending++;
+  pendingMarks[i].set(box, pending);
+  const ref = syncFs.doc(syncDb, "bingo", "card" + i);
+  markChain[i] = markChain[i]
+    .then(() => syncFs.runTransaction(syncDb, async tx => {
+      const snap = await tx.get(ref);
+      const remote = snap.exists() ? snap.data().marks : null;
+      const marks = Array.isArray(remote) && remote.length === 25 ? remote.map(Boolean) : state.cards[i].marks.slice();
+      marks[box] = value;
+      tx.set(ref, { marks }, { merge: true });
+    }))
+    .then(() => setSyncStatus("Synced across devices"))
+    // transactions need a connection: offline, fall back to a normal
+    // write, which Firestore queues and sends once back online
+    .catch(err => { console.warn("Mark sync failed, sending the whole card:", err); return syncCard(i, ["marks"]); })
+    .finally(() => {
+      // only let go of the box once its last tap has been sent
+      if (--pending.sending === 0 && pendingMarks[i].get(box) === pending) pendingMarks[i].delete(box);
+    });
+}
+
+// Clear marks: replaces the whole list on purpose, after any taps still on their way
+function syncClear(i) {
+  pendingMarks[i].clear();
+  markChain[i] = markChain[i].then(() => syncCard(i, ["marks", "redeemed"]));
 }
 
 // same, but batched while typing (waits for a short pause)
@@ -966,16 +1226,24 @@ mainEl.addEventListener("focusout", () => {
 });
 
 // a card changed on another device: pull it into local state
-function applyRemoteCard(i, data) {
+function applyRemoteCard(i, data, live) {
   const card = state.cards[i];
+  const oldMarks = card.marks.slice();
+  const oldRedeemed = Object.assign({}, card.redeemed);
   const signature = () => JSON.stringify([card.name, card.cells, card.marks, cardPayload(card, ["rewards", "redeemed"])]);
   const before = signature();
 
-  if (typeof data.name === "string") card.name = data.name;
+  // fields typed here but not sent yet (syncCardSoon waits for a pause)
+  // keep the local text, or an update from the other phone would wipe it
+  const mine = k => pendingKeys[i].has(k);
+  if (typeof data.name === "string" && !mine("name")) card.name = data.name;
   if (renameOld(card)) syncCardSoon(i, ["name"]); // fix the cloud copy too
-  if (Array.isArray(data.cells) && data.cells.length === 25) card.cells = data.cells.map(String);
-  if (Array.isArray(data.marks) && data.marks.length === 25) card.marks = data.marks.map(Boolean);
-  if (data.rewards) card.rewards = Object.assign(blankRewards(), data.rewards);
+  if (Array.isArray(data.cells) && data.cells.length === 25 && !mine("cells")) card.cells = data.cells.map(String);
+  if (Array.isArray(data.marks) && data.marks.length === 25) {
+    card.marks = data.marks.map(Boolean);
+    pendingMarks[i].forEach((pending, box) => { card.marks[box] = pending.marked; }); // our taps still on their way
+  }
+  if (data.rewards && !mine("rewards")) card.rewards = Object.assign(blankRewards(), data.rewards);
   if (data.redeemed) card.redeemed = Object.assign({}, data.redeemed);
   applyFreeCells(card);
 
@@ -985,6 +1253,43 @@ function applyRemoteCard(i, data) {
   updateTabs();
   if (i === state.active) rerenderIfSafe();
   else updateHub();
+  if (live) announceRemote(i, oldMarks, oldRedeemed);
+}
+
+// a toast saying what changed on the other phone (marks and redeems)
+function announceRemote(i, oldMarks, oldRedeemed) {
+  const card = state.cards[i];
+  const owner = cardName(i) + "'s card";
+  const changed = card.marks.flatMap((m, ci) => m !== oldMarks[ci] && !FREE_CELLS[ci] ? [ci] : []);
+  const marked = changed.filter(ci => card.marks[ci]);
+  const unmarked = changed.filter(ci => !card.marks[ci]);
+  const redeemed = REWARDS.filter(r => card.redeemed[r.id] && !oldRedeemed[r.id]);
+  const question = ci => card.cells[ci] || "Box " + (ci + 1);
+
+  let title = "", sub = "";
+  if (redeemed.length) {
+    title = "Prize redeemed!";
+    sub = owner + ": " + redeemed.map(r => card.rewards[r.id] || r.label).join(", ");
+  } else if (unmarked.length > 1 && !marked.length && card.marks.every((m, ci) => !m || FREE_CELLS[ci])) {
+    title = owner + " was cleared";
+  } else if (marked.length === 1 && !unmarked.length) {
+    title = "Marked on " + owner;
+    sub = question(marked[0]);
+  } else if (unmarked.length === 1 && !marked.length) {
+    title = "Unmarked on " + owner;
+    sub = question(unmarked[0]);
+  } else if (changed.length) {
+    title = owner + " updated";
+    sub = marked.length + " marked, " + unmarked.length + " unmarked";
+  }
+  if (!title) return;
+  showToast(title, sub);
+
+  // press the newly marked boxes in, if that card is on screen
+  if (i === state.active) requestAnimationFrame(() => {
+    const cells = mainEl.querySelectorAll(".grid .cell");
+    marked.forEach(ci => { if (cells[ci]) replay(cells[ci], "stamp"); });
+  });
 }
 
 async function initRemoteSync() {
@@ -1000,6 +1305,16 @@ async function initRemoteSync() {
     syncDb = fs.getFirestore(appMod.initializeApp(FIREBASE_CONFIG));
     setSyncStatus("Connecting...");
 
+    let firstPhotos = true;
+    fs.onSnapshot(
+      fs.doc(syncDb, "bingo", "photos"),
+      snap => {
+        if (!snap.metadata.hasPendingWrites && snap.exists()) applyRemotePhotos(snap.data(), !firstPhotos);
+        firstPhotos = false;
+      },
+      err => console.warn("Photo listener failed:", err)
+    );
+
     [0, 1].forEach(i => {
       fs.onSnapshot(
         fs.doc(syncDb, "bingo", "card" + i),
@@ -1008,7 +1323,7 @@ async function initRemoteSync() {
           const firstTime = !firstSnaps.has(i);
           if (snap.exists()) {
             setSyncStatus("Synced across devices");
-            applyRemoteCard(i, snap.data());
+            applyRemoteCard(i, snap.data(), !firstTime);
           } else if (!snap.metadata.fromCache) {
             // first run: put this device's copy in the cloud (never off a
             // cache-only "doesn't exist" while offline)
@@ -1224,7 +1539,7 @@ const TOUR_STEPS = [
   { target: () => document.querySelector(".modes"),
     text: () => "Edit lets you change the questions and prizes. Play is for marking boxes." },
   { target: () => mainEl.querySelector(".reset"),
-    text: () => "Clear marks unmarks this whole card, so be careful!" },
+    text: () => "Clear marks unmarks this whole card. You have to tap it twice, just to be safe!" },
   { target: () => helpBtn,
     text: () => "That's it! Tap ? anytime to see this tour again. Have fun!", next: "Done" },
 ];
