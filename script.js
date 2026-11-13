@@ -63,7 +63,7 @@
    }
    
    const defaultCard = (isPink) => ({
-     name: isPink ? "Team Pink" : "Team Blue",
+     name: isPink ? "Shai" : "James",
      cells: seedCells(),
      marks: Array(25).fill(false),
      rewards: blankRewards(),
@@ -83,6 +83,17 @@
      if (saved && saved.cards && saved.cards.length === 2) state = saved;
    } catch (e) { /* ignore corrupt storage */ }
    
+   // the sync note under the progress bar only shows up when syncing is broken
+   const SYNC_PROBLEM = /problem|unavailable/i;
+
+   // old saves still carry the placeholder names: swap them for the real ones
+   const OLD_NAMES = { "Team Blue": "James", "Team Pink": "Shai" };
+   const renameOld = card => {
+     if (OLD_NAMES[card.name]) { card.name = OLD_NAMES[card.name]; return true; }
+     return false;
+   };
+   state.cards.forEach(renameOld);
+
    if (!Array.isArray(state.milestones)) state.milestones = [];
    state.cards.forEach(c => {
      if (!c.rewards) c.rewards = blankRewards();
@@ -204,12 +215,12 @@
      synergyRefs.blueBar.style.width = (blueChecked / 50 * 100) + "%";
      synergyRefs.pinkBar.style.width = (pinkChecked / 50 * 100) + "%";
      const pct = Math.round((blueChecked + pinkChecked) / 50 * 100);
-     synergyRefs.pct.textContent = pct + "% checked";
+     synergyRefs.pct.textContent = pct + "%";
      const rawPct = overallPct();
      synergyRefs.milestoneDots.forEach((dot, i) => {
        const reached = rawPct >= MILESTONES[i].at;
        dot.classList.toggle("got", reached);
-       dot.textContent = reached ? "✓" : "?";
+       dot.textContent = reached ? "" : "?"; // reached ones show a pixel icon (style.css)
        // reached + has a message: hovering shows it in a bubble, clicking re-opens the popup
        const clickable = reached && !!MILESTONES[i].text;
        if (clickable) dot.dataset.msg = MILESTONES[i].text; else delete dot.dataset.msg;
@@ -223,8 +234,8 @@
        const prog = rewardProgress(state.cards[state.active].marks);
        const got = REWARDS.filter(r => prog[r.id] >= r.n).length;
        hubSummaryEl.textContent = state.mode === "edit"
-         ? "Rewards & progress"
-         : "Rewards " + got + "/" + REWARDS.length + "  ·  " + pct + "% checked";
+         ? "Rewards"
+         : "Rewards " + got + "/" + REWARDS.length + "  ·  " + pct + "%";
      }
      synergyRefs.blueLabel.textContent = (state.cards[0].name || "Card 1") + ": " + blueChecked + "/25";
      synergyRefs.pinkLabel.textContent = (state.cards[1].name || "Card 2") + ": " + pinkChecked + "/25";
@@ -238,17 +249,19 @@
    
    /* ================================================================
       PROGRESS MILESTONES
-      Fires a popup the first time the combined Match Synergy percentage
+      Fires a popup the first time the combined completion rate
       (both cards, out of 50 boxes) reaches each threshold. A milestone with
       text: null is a placeholder: it is tracked but shows nothing yet.
       ================================================================ */
    const MILESTONES = [
-     { at: 20,  emoji: "🎉", text: "CONGRATS ON REACHING 20% POTATOCORNERN TIME!" },
-     { at: 50,  emoji: "🎉", text: null },
-     { at: 70,  emoji: "🎉", text: null },
-     { at: 100, emoji: "🎉", text: null },
+     { at: 20,  icon: "img/potatocorner.png", wide: true, text: "CONGRATS ON REACHING 20% POTATOCORNER TIME!" },
+     { at: 50,  emoji: "📸", text: "HALFWAY THERE! PHOTOBOOTH TIME POOO!" },
+     { at: 70,  icon: "img/spotify.svg", text: "70%! MAKE A PLAYLIST THAT REMINDS YOU OF ME AND I'LL DO THE SAME <3 [3-Songs minimum]" },
+     { at: 100, icon: "img/bouquet.png", big: true, text: "100%! NEXT DATE IS ON ME, YOU PICK WHEN!" },
    ];
    
+   MILESTONES.forEach(m => { if (m.icon) new Image().src = m.icon; });
+
    let milestonesReady = false; // stays false until the first cloud sync lands, so old progress doesn't replay
    const milestoneQueue = [];
    let milestoneShowing = false;
@@ -256,11 +269,11 @@
    const milestoneOverlay = document.createElement("div");
    milestoneOverlay.className = "modal-overlay";
    milestoneOverlay.innerHTML = `
-     <div class="modal-box" role="dialog" aria-modal="true" aria-labelledby="milestoneTitle">
+     <div class="modal-box milestone-box" role="dialog" aria-modal="true" aria-labelledby="milestoneTitle">
        <button class="modal-close" aria-label="Close">×</button>
        <div class="modal-emoji"></div>
        <h2 id="milestoneTitle"></h2>
-       <div class="date-check-actions"><button class="dc-good" type="button">Yay!</button></div>
+       <div class="date-check-actions"><button class="dc-good" type="button">Yiee kilig yan</button></div>
      </div>
    `;
    appEl.appendChild(milestoneOverlay);
@@ -275,7 +288,18 @@
      if (milestoneShowing || !milestoneQueue.length) return;
      const m = milestoneQueue.shift();
      milestoneShowing = true;
-     milestoneOverlay.querySelector(".modal-emoji").textContent = m.emoji;
+     const iconEl = milestoneOverlay.querySelector(".modal-emoji");
+     iconEl.textContent = "";
+     iconEl.classList.toggle("big", !!m.big);
+     iconEl.classList.toggle("wide", !!m.wide);
+     if (m.icon) {
+       const img = document.createElement("img");
+       img.src = m.icon;
+       img.alt = "";
+       iconEl.appendChild(img);
+     } else {
+       iconEl.textContent = m.emoji || "";
+     }
      milestoneOverlay.querySelector("h2").textContent = m.text;
      milestoneOverlay.classList.add("show");
      milestoneBox.classList.remove("pop");
@@ -365,7 +389,7 @@
    
      const cellEls = [];
    
-     /* ---------- rewards hub (right column) ---------- */
+     /* ---------- rewards (right column) ---------- */
      const hubEl = document.createElement("div");
      hubEl.className = "hub";
    
@@ -373,7 +397,7 @@
      rewardsPanel.className = "panel";
      rewardsPanel.innerHTML = `
        <div class="ph">
-         <h2>Rewards Hub</h2>
+         <h2>Rewards</h2>
          <span class="pill" id="unlockedCount"></span>
        </div>
        <p class="sub">Hidden prizes unlocked by completed lines</p>
@@ -428,7 +452,7 @@
      synergyPanel.className = "panel";
      synergyPanel.innerHTML = `
        <div class="ph">
-         <h2>Match Synergy</h2>
+         <h2>Completion rate</h2>
          <span class="pill" id="synergyPct"></span>
        </div>
        <div class="bar-wrap">
@@ -443,7 +467,9 @@
        </div>
        <p class="sync-note"></p>
      `;
-     synergyPanel.querySelector(".sync-note").textContent = syncStatus;
+     const syncNoteEl = synergyPanel.querySelector(".sync-note");
+     syncNoteEl.textContent = syncStatus;
+     syncNoteEl.hidden = !SYNC_PROBLEM.test(syncStatus);
    
      // a circle on the bar for each milestone: "?" until it's been reached
      const milestoneDots = MILESTONES.map((m, mi) => {
@@ -501,7 +527,7 @@
        });
        statusEl.classList.toggle("setup", editing);
        statusEl.textContent = editing
-         ? "SETUP MODE"
+         ? ""
          : count ? ("BINGO!" + (count > 1 ? " x" + count : "")) : "";
    
        // lines that just became complete: flash them cell by cell
@@ -583,7 +609,8 @@
          refs.wasUnlocked = unlocked;
        });
    
-       unlockedCountEl.textContent = editing ? "editing" : unlockedCount + " unlocked";
+       unlockedCountEl.textContent = editing ? "" : unlockedCount + " unlocked";
+       unlockedCountEl.hidden = editing;
        updateBingoBadges();
        updateSynergy();
    
@@ -595,6 +622,7 @@
            : newLines[0] < 10 ? "Column complete!"
            : "Diagonal complete!";
          showToast(title, newlyUnlocked.length ? "Unlocked: " + newlyUnlocked.join(", ") : "");
+         chip(everything ? "blackout" : "line");
        }
      };
    
@@ -606,7 +634,7 @@
    
        // diagonal position: 0 (top-left) .. 8 (bottom-right)
        const diagonalPos = Math.floor(i / 5) + (i % 5);
-       // Team Blue (card 0) is reversed: blue top-left -> pink bottom-right
+       // James (card 0) is reversed: blue top-left -> pink bottom-right
        const pinkShare = cardIndex === 0
          ? Math.round((diagonalPos / 8) * 100)
          : Math.round(100 - (diagonalPos / 8) * 100);
@@ -626,6 +654,7 @@
          refresh(true);
          syncCard(cardIndex, ["marks"]);
          playClickSfx(cardIndex);
+         chip(card.marks[i] ? "mark" : "unmark");
          cellEl.classList.remove("stamp");
          if (card.marks[i]) {
            void cellEl.offsetWidth; // restart animation
@@ -778,7 +807,7 @@
    /* ================================================================
       CLICK SOUNDS
       A random voice clip plays when a box is tapped in Play mode. Only the
-      cards listed in SFX_CARDS get sounds (0 = Team Blue, 1 = Team Pink).
+      cards listed in SFX_CARDS get sounds (0 = James, 1 = Shai).
       Put the audio files in an "sfx" folder next to index.html. Any file
       that's missing just stays silent, nothing breaks.
       ================================================================ */
@@ -791,7 +820,7 @@
      "sfx/click6.mp3",
      "sfx/click7.mp3",
    ];
-   const SFX_CARDS = [1];   // only her card (Team Pink) gets sounds
+   const SFX_CARDS = [1];   // only her card (Shai) gets sounds
    const SFX_VOLUME = 1;    // 0 to 1
    
    const sfxClips = SFX_FILES.map(src => {
@@ -817,6 +846,39 @@
      clip.play().catch(() => { /* file missing or playback blocked: stay silent */ });
    }
    
+   /* ================================================================
+      8-BIT BLIPS
+      Tiny square-wave sounds made on the fly (no files needed), to go with
+      the pixel look. CHIP_VOLUME = 0 turns them off.
+      ================================================================ */
+   const CHIP_VOLUME = 0.06;
+   const CHIP_TUNES = {
+     mark:     [[880, .05], [1320, .07]],                  // coin-ish "bling"
+     unmark:   [[660, .05], [440, .07]],                   // step down
+     line:     [[523, .08], [659, .08], [784, .08], [1047, .16]],
+     blackout: [[523, .08], [659, .08], [784, .08], [1047, .1], [784, .08], [1047, .1], [1319, .28]],
+   };
+   let chipCtx = null;
+   function chip(name) {
+     if (!CHIP_VOLUME) return;
+     try {
+       chipCtx = chipCtx || new (window.AudioContext || window.webkitAudioContext)();
+       let t = chipCtx.currentTime;
+       CHIP_TUNES[name].forEach(([freq, len]) => {
+         const osc = chipCtx.createOscillator();
+         const gain = chipCtx.createGain();
+         osc.type = "square";
+         osc.frequency.value = freq;
+         gain.gain.setValueAtTime(CHIP_VOLUME, t);
+         gain.gain.setValueAtTime(0, t + len * .9);
+         osc.connect(gain).connect(chipCtx.destination);
+         osc.start(t);
+         osc.stop(t + len);
+         t += len;
+       });
+     } catch (e) { /* no audio support: stay silent */ }
+   }
+
    /* ================================================================
       LIVE SYNC (Firebase Firestore)
       Progress used to live only in each browser's localStorage. With this,
@@ -845,7 +907,7 @@
    function setSyncStatus(text) {
      syncStatus = text;
      const el = document.querySelector(".sync-note");
-     if (el) el.textContent = text;
+     if (el) { el.textContent = text; el.hidden = !SYNC_PROBLEM.test(text); }
    }
    
    // the fields of a card we store in the cloud (redeemed/rewards are normalized
@@ -884,7 +946,7 @@
        .then(() => setSyncStatus("Synced across devices"))
        .catch(err => {
          console.warn("Sync write failed:", err);
-         setSyncStatus("Sync problem: saving on this device only");
+         setSyncStatus("Sync problem: saved on this device only for now");
        });
    }
    
@@ -919,6 +981,7 @@
      const before = cardSignature(card);
    
      if (typeof data.name === "string") card.name = data.name;
+     if (renameOld(card)) syncCardSoon(i, ["name"]); // fix the cloud copy too
      if (Array.isArray(data.cells) && data.cells.length === 25) card.cells = data.cells.map(String);
      if (Array.isArray(data.marks) && data.marks.length === 25) card.marks = data.marks.map(Boolean);
      if (data.rewards) card.rewards = Object.assign(blankRewards(), data.rewards);
@@ -974,14 +1037,14 @@
            },
            err => {
              console.warn("Sync listener failed:", err);
-             setSyncStatus("Sync problem: saving on this device only");
+             setSyncStatus("Sync problem: saved on this device only for now");
              armMilestones();
            }
          );
        });
      } catch (err) {
        console.warn("Could not start sync:", err);
-       setSyncStatus("Sync unavailable: saving on this device only");
+       setSyncStatus("Sync unavailable: saved on this device only for now");
        armMilestones();
      }
    }
