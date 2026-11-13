@@ -1045,16 +1045,16 @@
   .cell {
     border: 2px solid var(--outline);
     border-radius: 0;
-    background: color-mix(in srgb, var(--cc) 14%, var(--card));
+    background: color-mix(in srgb, var(--cc) 32%, var(--card));
     box-shadow: 2px 2px 0 color-mix(in srgb, var(--outline) 35%, transparent);
   }
   .cell.free {
     border-style: solid;
     font-family: var(--head);
-    background: repeating-conic-gradient(color-mix(in srgb, var(--cc) 22%, var(--card)) 0 25%, color-mix(in srgb, var(--cc) 10%, var(--card)) 0 50%) 0 0 / 12px 12px;
+    background: repeating-conic-gradient(color-mix(in srgb, var(--cc) 40%, var(--card)) 0 25%, color-mix(in srgb, var(--cc) 24%, var(--card)) 0 50%) 0 0 / 12px 12px;
   }
   .cell.m {
-    background: color-mix(in srgb, var(--cc) 34%, var(--card));
+    background: color-mix(in srgb, var(--cc) 58%, var(--card));
     border-color: var(--outline);
     text-shadow: none;
   }
@@ -1101,7 +1101,7 @@
   .edit .cell,
   .edit .cell.m,
   .edit .cell.w {
-    background: color-mix(in srgb, var(--cc) 10%, var(--card));
+    background: color-mix(in srgb, var(--cc) 26%, var(--card));
     border: 2px solid color-mix(in srgb, var(--outline) 55%, var(--card));
     box-shadow: none;
   }
