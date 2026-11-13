@@ -16,6 +16,33 @@ const FREE_CELLS = {
   3:  "bonus wag na to",
   21: "bonus wag na to",
 };
+/* ---------- ROUND 2 ----------
+   Hidden until both Round 1 cards are full, then it appears in the
+   sidebar. Until that moment the boxes always come from the lists below,
+   so edit them here any time before the reveal. After the reveal they
+   can also be changed in Edit mode like Round 1. */
+
+// only the centre box is free
+const FREE_CELLS_2 = {
+  12: "FREE",
+};
+
+// the 24 Round 2 questions in reading order (the FREE box is skipped).
+// Same questions on both cards. Empty ones show as a numbered box.
+const SEED_QUESTIONS_2 = [
+  "", "", "", "", "",
+  "", "", "", "", "",
+  "", "",     "", "",   // (the FREE box sits in the middle of this row)
+  "", "", "", "", "",
+  "", "", "", "", "",
+];
+
+// Round 2's hidden prizes: one set for James's card, one for Shai's
+// (h = any row, v = any column, d = a diagonal, all = blackout)
+const PRIZES_2 = [
+  { h: "", v: "", d: "", all: "" }, // James's Round 2 card
+  { h: "", v: "", d: "", all: "" }, // Shai's Round 2 card
+];
 
 // the 22 non-free boxes in reading order (FREE_CELLS slots are skipped).
 // Same questions on both cards: each person checks off what they learn.
@@ -55,37 +82,66 @@ const MILESTONES = [
   { at: 70,  icon: "img/spotify.svg", text: "70%! MAKE A PLAYLIST THAT REMINDS YOU OF ME AND I'LL DO THE SAME <3 [3-Songs minimum]" },
   { at: 100, icon: "img/bouquet.png", big: true, text: "100%! NEXT DATE IS ON ME, YOU PICK WHEN!" },
 ];
+// Round 2's surprises (placeholders until the real ones are written)
+const MILESTONES_2 = [
+  { at: 30,  round: 2, emoji: "💌", text: "ROUND 2: 30%! YOU'RE GETTING TO KNOW ME EVEN MORE <3" },
+  { at: 50,  round: 2, emoji: "🌷", text: "ROUND 2: HALFWAY THERE!" },
+  { at: 70,  round: 2, emoji: "✨", text: "ROUND 2: 70%! ALMOST THERE BABY" },
+  { at: 100, round: 2, emoji: "💖", text: "ROUND 2: 100%! YOU KNOW ME BY HEART NOW" },
+];
+const MILESTONES_BY_ROUND = [MILESTONES, MILESTONES_2];
+
+// shown once, when both Round 1 cards are full
+const UNLOCK_POPUP = { emoji: "🔓", text: "ROUND 2 UNLOCKED! A WHOLE NEW CARD IS WAITING FOR US", button: "Open Round 2" };
 
 /* ================================================================
    STATE
    ================================================================ */
 const blankRewards = () => ({ h: "", v: "", d: "", all: "" });
 
-function seedCells() {
-  const questions = SEED_QUESTIONS[Symbol.iterator]();
+/* Cards: 0 = Round 1 James, 1 = Round 1 Shai, 2 = Round 2 James, 3 = Round 2 Shai */
+const roundOf = k => k >> 1;          // 0 = Round 1, 1 = Round 2
+const personOf = k => k & 1;          // 0 = James (blue), 1 = Shai (pink)
+const freeOf = k => roundOf(k) ? FREE_CELLS_2 : FREE_CELLS;
+
+function seedCells(k) {
+  const questions = (roundOf(k) ? SEED_QUESTIONS_2 : SEED_QUESTIONS)[Symbol.iterator]();
   // free slots stay blank here; applyFreeCells fills them in
-  return Array.from({ length: 25 }, (_, i) => FREE_CELLS[i] ? "" : (questions.next().value || ""));
+  return Array.from({ length: 25 }, (_, i) => freeOf(k)[i] ? "" : (questions.next().value || ""));
 }
 
-const defaultCard = isPink => ({
-  name: isPink ? "Shai" : "James",
-  cells: seedCells(),
+const defaultCard = k => ({
+  name: personOf(k) ? "Shai" : "James",
+  cells: seedCells(k),
   marks: Array(25).fill(false),
-  rewards: blankRewards(),
+  rewards: roundOf(k) ? Object.assign(blankRewards(), PRIZES_2[personOf(k)]) : blankRewards(),
   redeemed: {},
 });
+
+// while Round 2 is still hidden, its questions and prizes come straight
+// from the code (nobody can edit them in the site yet)
+function seedHiddenRound2() {
+  if (state.unlocked2) return;
+  [2, 3].forEach(k => {
+    state.cards[k].cells = seedCells(k);
+    state.cards[k].rewards = Object.assign(blankRewards(), PRIZES_2[personOf(k)]);
+  });
+}
 
 let state = {
   mode: "edit",
   active: 0,
   contentVersion: CONTENT_VERSION,
-  cards: [defaultCard(false), defaultCard(true)],
+  unlocked2: false,
+  cards: [0, 1, 2, 3].map(defaultCard),
 };
 
 try {
   const saved = JSON.parse(localStorage.getItem(STORAGE_KEY));
-  if (saved && saved.cards && saved.cards.length === 2) state = saved;
+  if (saved && saved.cards && (saved.cards.length === 2 || saved.cards.length === 4)) state = saved;
 } catch (e) { /* ignore corrupt storage */ }
+// saves from before Round 2 existed
+while (state.cards.length < 4) state.cards.push(defaultCard(state.cards.length));
 
 // old saves still carry the placeholder names: swap them for the real ones
 const OLD_NAMES = { "Team Blue": "James", "Team Pink": "Shai" };
@@ -95,27 +151,33 @@ function renameOld(card) {
   return true;
 }
 
-function applyFreeCells(card) {
-  for (const i in FREE_CELLS) {
-    card.cells[i] = FREE_CELLS[i];
+function applyFreeCells(card, k) {
+  const free = freeOf(k);
+  for (const i in free) {
+    card.cells[i] = free[i];
     card.marks[i] = true;
   }
 }
 
 // patch in anything older saves might be missing
 if (!Array.isArray(state.milestones)) state.milestones = [];
-state.cards.forEach(card => {
+if (!Array.isArray(state.milestones2)) state.milestones2 = [];
+state.unlocked2 = !!state.unlocked2;
+state.cards.forEach((card, k) => {
   renameOld(card);
   card.rewards = card.rewards || blankRewards();
   card.redeemed = card.redeemed || {};
-  // a save from an older question set: new questions, and clear the marks
-  // since they wouldn't line up anymore
-  if (state.contentVersion !== CONTENT_VERSION) {
-    card.cells = seedCells();
+  // a save from an older Round 1 question set: new questions, and clear
+  // the marks since they wouldn't line up anymore
+  if (state.contentVersion !== CONTENT_VERSION && roundOf(k) === 0) {
+    card.cells = seedCells(k);
     card.marks = Array(25).fill(false);
   }
-  applyFreeCells(card);
+  applyFreeCells(card, k);
 });
+seedHiddenRound2();
+state.cards.forEach(applyFreeCells);
+if (roundOf(state.active) === 1 && !state.unlocked2) state.active = personOf(state.active);
 state.contentVersion = CONTENT_VERSION;
 
 function save() {
@@ -125,7 +187,11 @@ function save() {
 
 const cardName = i => state.cards[i].name || "Card " + (i + 1);
 const checkedCount = card => card.marks.filter(Boolean).length;
-const overallPct = () => (checkedCount(state.cards[0]) + checkedCount(state.cards[1])) / 50 * 100;
+const activeRound = () => roundOf(state.active);
+// combined completion of one round's two cards (50 boxes)
+const overallPct = (r = activeRound()) => (checkedCount(state.cards[2 * r]) + checkedCount(state.cards[2 * r + 1])) / 50 * 100;
+const roundOneFull = () => state.cards[0].marks.every(Boolean) && state.cards[1].marks.every(Boolean);
+const milestoneKey = r => r ? "milestones2" : "milestones";
 
 /* ================================================================
    BINGO LINES
@@ -340,7 +406,7 @@ let sfxClips = null;
 let lastSfxIndex = -1;
 
 function playClickSfx(cardIndex) {
-  if (!SFX_CARDS.includes(cardIndex) || !SFX_FILES.length) return;
+  if (!SFX_CARDS.includes(personOf(cardIndex)) || !SFX_FILES.length) return;
   sfxClips = sfxClips || SFX_FILES.map(src => {
     const audio = new Audio(src);
     audio.volume = SFX_VOLUME;
@@ -365,6 +431,7 @@ const CHIP_TUNES = {
   blackout: [[523, .08], [659, .08], [784, .08], [1047, .1], [784, .08], [1047, .1], [1319, .28]],
   redeem:   [[988, .07], [1319, .12], [0, .04], [1568, .06], [2093, .22]], // coin pickup + sparkle
   // milestone popups: a quick rising run, then a held "ta-daa", like a level up
+  reveal:   [[1047, .05], [1319, .05], [1568, .05], [2093, .05], [1568, .05], [2093, .05], [2637, .18]], // sparkly "ta-da" as Round 2 appears
   levelup:  [[392, .06], [523, .06], [659, .06], [784, .06], [1047, .06], [0, .05], [784, .07], [1047, .07], [1319, .07], [1568, .32]],
 };
 let chipCtx = null;
@@ -464,6 +531,7 @@ function showToast(title, sub, over) {
    MILESTONE POPUPS
    ================================================================ */
 MILESTONES.forEach(m => { if (m.icon) new Image().src = m.icon; });
+let milestoneCurrent = null; // the popup on screen (its button may have an action)
 
 let milestonesReady = false; // false until the first cloud sync lands, so old progress doesn't replay
 const milestoneQueue = [];
@@ -485,12 +553,18 @@ const milestoneOverlay = makeOverlay(`
 const milestoneBox = milestoneOverlay.querySelector(".modal-box");
 const milestoneIcon = milestoneOverlay.querySelector(".modal-emoji");
 milestoneOverlay.querySelector(".modal-close").onclick = hideMilestone;
-milestoneOverlay.querySelector(".dc-good").onclick = hideMilestone;
+const milestoneBtn = milestoneOverlay.querySelector(".dc-good");
+milestoneBtn.onclick = () => {
+  if (milestoneCurrent) milestoneCurrent.pressed = true; // its main button, not × / Esc
+  hideMilestone();
+};
 
 function showNextMilestone() {
   if (milestoneShowing || tour || !milestoneQueue.length) return; // waits for the tour to finish
   const m = milestoneQueue.shift();
   milestoneShowing = true;
+  milestoneCurrent = m;
+  milestoneBtn.textContent = m.button || "Yiee kilig yan";
   milestoneIcon.textContent = "";
   milestoneIcon.hidden = false;
   milestoneIcon.classList.toggle("big", !!m.big);
@@ -511,6 +585,9 @@ function showNextMilestone() {
 }
 
 function hideMilestone() {
+  const closing = milestoneCurrent;
+  milestoneCurrent = null;
+  if (closing && closing.onClose) closing.onClose(closing);
   milestoneOverlay.classList.remove("show");
   photoMilestone = null;
   milestoneShowing = false;
@@ -613,22 +690,27 @@ function applyRemotePhotos(data, live) {
   if (live) showToast("New photo added!", "Tap the 50% surprise to see it");
 }
 
-// called whenever progress changes
+// called whenever progress changes (checks both rounds)
 function checkMilestones() {
   if (!milestonesReady) return;
-  const pct = overallPct();
-  const before = state.milestones.length;
-  // progress dropped back below a threshold (e.g. Clear marks): it can fire again
-  state.milestones = state.milestones.filter(t => t <= pct);
-  let changed = state.milestones.length !== before;
-  MILESTONES.forEach(m => {
-    if (pct >= m.at && !state.milestones.includes(m.at)) {
-      state.milestones.push(m.at);
-      changed = true;
-      if (m.text) milestoneQueue.push(m);
-    }
+  let changed = false;
+  MILESTONES_BY_ROUND.forEach((list, r) => {
+    const key = milestoneKey(r);
+    const pct = overallPct(r);
+    const before = state[key].length;
+    // progress dropped back below a threshold (e.g. Clear marks): it can fire again
+    state[key] = state[key].filter(t => t <= pct);
+    if (state[key].length !== before) changed = true;
+    list.forEach(m => {
+      if (pct >= m.at && !state[key].includes(m.at)) {
+        state[key].push(m.at);
+        changed = true;
+        if (m.text) milestoneQueue.push(m);
+      }
+    });
   });
   if (changed) save();
+  if (!state.unlocked2 && roundOneFull()) unlockRound2(true);
   showNextMilestone();
 }
 
@@ -636,12 +718,48 @@ function checkMilestones() {
 // past counts as seen, so only genuinely new crossings pop up
 function armMilestones() {
   if (milestonesReady) return;
-  const pct = overallPct();
-  MILESTONES.forEach(m => {
-    if (pct >= m.at && !state.milestones.includes(m.at)) state.milestones.push(m.at);
+  MILESTONES_BY_ROUND.forEach((list, r) => {
+    const key = milestoneKey(r);
+    list.forEach(m => {
+      if (overallPct(r) >= m.at && !state[key].includes(m.at)) state[key].push(m.at);
+    });
   });
   save();
   milestonesReady = true;
+  checkMilestones(); // e.g. Round 1 was already full: unlock Round 2 now
+}
+
+/* ---------- Round 2 unlock (permanent once it happens) ---------- */
+let revealPending = false; // unlocked, but the tabs wait for the reveal animation
+
+function unlockRound2(celebrate) {
+  if (state.unlocked2) return;
+  seedHiddenRound2(); // the latest questions from the code, on both phones
+  state.unlocked2 = true;
+  save();
+  syncUnlock();
+  if (!celebrate) { updateTabs(); return; } // e.g. a phone joining later: just show it
+  revealPending = true;
+  milestoneQueue.push(Object.assign({}, UNLOCK_POPUP, {
+    onClose: popup => revealRound2(popup.pressed),
+  }));
+  showNextMilestone();
+}
+
+// the Round 2 tabs drop into the sidebar one by one; "Open Round 2" then opens it
+function revealRound2(openIt) {
+  if (!revealPending) return;
+  revealPending = false;
+  updateTabs();
+  const parts = [roundOneLabel, round2Label, tabs[2].tab, tabs[3].tab];
+  parts.forEach((node, i) => { node.style.setProperty("--i", i); replay(node, "reveal"); });
+  setTimeout(() => chip("reveal"), 150);
+  if (openIt) setTimeout(() => {
+    state.active = 2 + personOf(state.active);
+    state.mode = "play";
+    save();
+    render();
+  }, 900);
 }
 
 /* ================================================================
@@ -689,8 +807,12 @@ function cancelPress() {
 /* ================================================================
    SIDEBAR TABS
    ================================================================ */
+const roundOneLabel = el("small", "round-label", "Round 1");
+const round2Label = el("small", "round-label r2", "Round 2");
 const tabs = state.cards.map((card, i) => {
-  const tab = el("button", "tab c" + i, '<span class="t"></span><span class="badge">BINGO</span>');
+  if (i === 0) tabsEl.appendChild(roundOneLabel);
+  if (i === 2) tabsEl.appendChild(round2Label);
+  const tab = el("button", "tab c" + personOf(i) + (roundOf(i) ? " r2" : ""), '<span class="t"></span><span class="badge">BINGO</span>');
   tab.onclick = () => {
     if (state.active === i) return;
     state.active = i;
@@ -707,6 +829,10 @@ function updateTabs() {
     t.badge.classList.toggle("show", doneLines(state.cards[i].marks).length > 0);
     t.tab.classList.toggle("on", i === state.active);
   });
+  // Round 2 (and the round labels) stay hidden until it's unlocked and revealed
+  const hidden = !state.unlocked2 || revealPending;
+  [roundOneLabel, round2Label, tabs[2].tab, tabs[3].tab].forEach(node => { node.hidden = hidden; });
+  tabsEl.classList.toggle("two-rounds", !hidden);
 }
 
 /* ================================================================
@@ -744,14 +870,17 @@ stripEl.onclick = () => {
 function updateStrip(blue, pink, rawPct) {
   strip.blue.style.width = (blue / 50 * 100) + "%";
   strip.pink.style.width = (pink / 50 * 100) + "%";
-  const next = MILESTONES.find(m => m.at > rawPct);
-  strip.text.textContent = Math.round(rawPct) + "%" + (next ? "  ·  next ? at " + next.at + "%" : "  ·  all surprises found!");
-  strip.ticks.forEach((tick, k) => tick.classList.toggle("got", rawPct >= MILESTONES[k].at));
+  const list = MILESTONES_BY_ROUND[activeRound()];
+  const next = list.find(m => m.at > rawPct);
+  strip.text.textContent = (activeRound() ? "Round 2 · " : "") + Math.round(rawPct) + "%"
+    + (next ? "  ·  next ? at " + next.at + "%" : "  ·  all surprises found!");
+  strip.ticks.forEach((tick, k) => tick.classList.toggle("got", rawPct >= list[k].at));
 }
 
 // completion bar, milestone markers and the collapsed-hub summary
 function updateHub() {
-  const [blue, pink] = state.cards.map(checkedCount);
+  const r = activeRound();
+  const [blue, pink] = [state.cards[2 * r], state.cards[2 * r + 1]].map(checkedCount);
   const rawPct = overallPct();
   const pct = Math.round(rawPct);
   updateStrip(blue, pink, rawPct);
@@ -760,11 +889,11 @@ function updateHub() {
   hub.blueBar.style.width = (blue / 50 * 100) + "%";
   hub.pinkBar.style.width = (pink / 50 * 100) + "%";
   hub.pct.textContent = pct + "%";
-  hub.blueLabel.textContent = cardName(0) + ": " + blue + "/25";
-  hub.pinkLabel.textContent = cardName(1) + ": " + pink + "/25";
+  hub.blueLabel.textContent = cardName(2 * r) + ": " + blue + "/25";
+  hub.pinkLabel.textContent = cardName(2 * r + 1) + ": " + pink + "/25";
 
   hub.dots.forEach((dot, i) => {
-    const m = MILESTONES[i];
+    const m = MILESTONES_BY_ROUND[r][i];
     const reached = rawPct >= m.at;
     // reached + has a message: hover shows it in a bubble, click re-opens the popup
     const clickable = reached && !!m.text;
@@ -804,7 +933,7 @@ function buildHub() {
   `);
 
   const completionPanel = el("div", "panel", `
-    <div class="ph"><h2>Completion rate</h2><span class="pill"></span></div>
+    <div class="ph"><h2>${activeRound() ? "Round 2 completion" : "Completion rate"}</h2><span class="pill"></span></div>
     <div class="bar-wrap"><div class="bar"><div class="sb"></div><div class="sp"></div></div></div>
     <div class="leg"><span class="lb"></span><span class="lp"></span></div>
     <p class="sync-note"></p>
@@ -812,8 +941,9 @@ function buildHub() {
   const barWrap = completionPanel.querySelector(".bar-wrap");
 
   // a marker on the bar for each milestone: "?" until it's reached
-  const dots = MILESTONES.map(m => {
+  const dots = MILESTONES_BY_ROUND[activeRound()].map(m => {
     const dot = el("span", "ms");
+    if (m.round) dot.dataset.round = m.round;
     dot.style.left = m.at + "%";
     dot.dataset.at = m.at;
     // once reached, click (or Enter) brings its popup back
@@ -857,7 +987,8 @@ function render() {
 
   editBtn.classList.toggle("on", editing);
   playBtn.classList.toggle("on", !editing);
-  appEl.dataset.card = cardIndex;
+  appEl.dataset.card = personOf(cardIndex);
+  appEl.dataset.round = roundOf(cardIndex) + 1;
   updateTabs();
 
   /* ---------- bingo card ---------- */
@@ -948,9 +1079,8 @@ function render() {
       c.classList.toggle("m", card.marks[i]);
       c.classList.toggle("w", won.has(i));
     });
-    statusEl.textContent = !editing && done.length
-      ? "BINGO!" + (done.length > 1 ? " x" + done.length : "")
-      : "";
+    statusEl.textContent = !editing && done.length ? "BINGO!" + (done.length > 1 ? " x" + done.length : "")
+      : roundOf(cardIndex) ? "ROUND 2" : "";
 
     // lines that just became complete: flash them cell by cell
     const newLines = animate && lastDone ? done.filter(li => !lastDone.includes(li)) : [];
@@ -1019,7 +1149,7 @@ function render() {
   /* ---------- 25 grid cells ---------- */
   for (let i = 0; i < 25; i++) {
     const cellEl = el("div", "cell");
-    const free = !!FREE_CELLS[i];
+    const free = !!freeOf(cardIndex)[i];
     cellEl.dataset.n = i + 1;
     cellEl.textContent = card.cells[i];
     if (free) cellEl.classList.add("free");
@@ -1027,7 +1157,7 @@ function render() {
 
     // colour along the diagonal: James goes blue (top-left) -> pink, Shai the reverse
     const diagonalShare = (Math.floor(i / 5) + i % 5) / 8;
-    cellEl.style.setProperty("--p", Math.round((cardIndex === 0 ? diagonalShare : 1 - diagonalShare) * 100) + "%");
+    cellEl.style.setProperty("--p", Math.round((personOf(cardIndex) === 0 ? diagonalShare : 1 - diagonalShare) * 100) + "%");
 
     if (editing) {
       cellEl.oninput = () => {
@@ -1079,7 +1209,7 @@ function render() {
     }
     disarm();
     card.marks.fill(false);
-    applyFreeCells(card);
+    applyFreeCells(card, cardIndex);
     card.redeemed = {};
     save();
     syncClear(cardIndex);
@@ -1100,6 +1230,7 @@ function render() {
 function setMode(mode) {
   if (state.mode === mode) return;
   state.mode = mode;
+  if (mode === "play" && roundOf(state.active) === 1 && !state.unlocked2) state.active = personOf(state.active);
   save();
   render();
 }
@@ -1125,8 +1256,9 @@ const SYNC_KEYS = ["name", "cells", "marks", "rewards", "redeemed"];
 let syncDb = null;   // Firestore instance, once connected
 let syncFs = null;   // Firestore functions (doc, setDoc, onSnapshot...)
 let pendingRerender = false;
-const pendingKeys = [new Set(), new Set()];
-const pendingTimers = [null, null];
+const CARD_COUNT = 4;
+const pendingKeys = Array.from({ length: CARD_COUNT }, () => new Set());
+const pendingTimers = Array(CARD_COUNT).fill(null);
 
 // the fields of a card stored in the cloud (every reward key always present)
 function cardPayload(card, keys) {
@@ -1167,10 +1299,10 @@ function syncPhoto(at) {
 // transaction (read the latest marks, flip one, write back). Sending the
 // whole marks list instead would let two phones tapping at the same
 // moment undo each other's tap. Taps on a card are sent in order.
-const markChain = [Promise.resolve(), Promise.resolve()];
+const markChain = Array.from({ length: CARD_COUNT }, () => Promise.resolve());
 // taps the server hasn't confirmed yet: box -> { marked, sending }
 // (sending counts the taps on that box still on their way)
-const pendingMarks = [new Map(), new Map()];
+const pendingMarks = Array.from({ length: CARD_COUNT }, () => new Map());
 
 function syncMark(i, box) {
   if (!syncDb) return;
@@ -1196,6 +1328,15 @@ function syncMark(i, box) {
       // only let go of the box once its last tap has been sent
       if (--pending.sending === 0 && pendingMarks[i].get(box) === pending) pendingMarks[i].delete(box);
     });
+}
+
+// Round 2 unlocked here: tell the other phone (kept on the Round 1 James doc)
+function syncUnlock() {
+  if (!syncDb) return;
+  syncFs.setDoc(syncFs.doc(syncDb, "bingo", "card0"), { round2: true }, { merge: true })
+    .catch(err => console.warn("Unlock sync failed:", err));
+  syncCard(2, ["cells", "rewards"]);
+  syncCard(3, ["cells", "rewards"]);
 }
 
 // Clear marks: replaces the whole list on purpose, after any taps still on their way
@@ -1238,14 +1379,22 @@ function applyRemoteCard(i, data, live) {
   const mine = k => pendingKeys[i].has(k);
   if (typeof data.name === "string" && !mine("name")) card.name = data.name;
   if (renameOld(card)) syncCardSoon(i, ["name"]); // fix the cloud copy too
-  if (Array.isArray(data.cells) && data.cells.length === 25 && !mine("cells")) card.cells = data.cells.map(String);
+  const hiddenRound = roundOf(i) === 1 && !state.unlocked2; // its text comes from the code until the reveal
+  if (Array.isArray(data.cells) && data.cells.length === 25 && !mine("cells") && !hiddenRound) card.cells = data.cells.map(String);
   if (Array.isArray(data.marks) && data.marks.length === 25) {
     card.marks = data.marks.map(Boolean);
     pendingMarks[i].forEach((pending, box) => { card.marks[box] = pending.marked; }); // our taps still on their way
   }
-  if (data.rewards && !mine("rewards")) card.rewards = Object.assign(blankRewards(), data.rewards);
+  if (data.rewards && !mine("rewards") && !hiddenRound) card.rewards = Object.assign(blankRewards(), data.rewards);
   if (data.redeemed) card.redeemed = Object.assign({}, data.redeemed);
-  applyFreeCells(card);
+  applyFreeCells(card, i);
+  // the other phone unlocked Round 2. If our copy of Round 1 isn't full yet,
+  // its last marks are still on their way: give them a moment so the 100%
+  // popup shows before the unlock one (checkMilestones unlocks as they land)
+  if (data.round2 === true && !state.unlocked2) {
+    if (!live || roundOneFull()) unlockRound2(live);
+    else setTimeout(() => unlockRound2(true), 2500);
+  }
 
   if (signature() === before) return; // just our own write coming back
 
@@ -1259,8 +1408,9 @@ function applyRemoteCard(i, data, live) {
 // a toast saying what changed on the other phone (marks and redeems)
 function announceRemote(i, oldMarks, oldRedeemed) {
   const card = state.cards[i];
-  const owner = cardName(i) + "'s card";
-  const changed = card.marks.flatMap((m, ci) => m !== oldMarks[ci] && !FREE_CELLS[ci] ? [ci] : []);
+  const owner = cardName(i) + "'s " + (roundOf(i) ? "Round 2 card" : "card");
+  const free = freeOf(i);
+  const changed = card.marks.flatMap((m, ci) => m !== oldMarks[ci] && !free[ci] ? [ci] : []);
   const marked = changed.filter(ci => card.marks[ci]);
   const unmarked = changed.filter(ci => !card.marks[ci]);
   const redeemed = REWARDS.filter(r => card.redeemed[r.id] && !oldRedeemed[r.id]);
@@ -1270,7 +1420,7 @@ function announceRemote(i, oldMarks, oldRedeemed) {
   if (redeemed.length) {
     title = "Prize redeemed!";
     sub = owner + ": " + redeemed.map(r => card.rewards[r.id] || r.label).join(", ");
-  } else if (unmarked.length > 1 && !marked.length && card.marks.every((m, ci) => !m || FREE_CELLS[ci])) {
+  } else if (unmarked.length > 1 && !marked.length && card.marks.every((m, ci) => !m || free[ci])) {
     title = owner + " was cleared";
   } else if (marked.length === 1 && !unmarked.length) {
     title = "Marked on " + owner;
@@ -1294,7 +1444,7 @@ function announceRemote(i, oldMarks, oldRedeemed) {
 
 async function initRemoteSync() {
   const firstSnaps = new Set();
-  const noteFirstSnap = i => { firstSnaps.add(i); if (firstSnaps.size === 2) armMilestones(); };
+  const noteFirstSnap = i => { firstSnaps.add(i); if (firstSnaps.size === CARD_COUNT) armMilestones(); };
   setTimeout(armMilestones, 5000); // don't wait forever if we're offline
   try {
     const [appMod, fs] = await Promise.all([
@@ -1315,7 +1465,7 @@ async function initRemoteSync() {
       err => console.warn("Photo listener failed:", err)
     );
 
-    [0, 1].forEach(i => {
+    [0, 1, 2, 3].forEach(i => {
       fs.onSnapshot(
         fs.doc(syncDb, "bingo", "card" + i),
         snap => {
@@ -1527,7 +1677,8 @@ function openHub() { if (!hubOpen && hub) hub.toggle.click(); }
 const TOUR_STEPS = [
   { text: () => "Hi! Welcome to Get to Know Me Bingo! Here's a quick tour, it only takes a minute.", next: "Let's go!" },
   { target: () => tabs.map(t => t.tab),
-    text: () => "These are our cards! Tap " + cardName(0) + " or " + cardName(1) + " to switch. A BINGO badge shows up when a card has a finished line." },
+    text: () => "These are our cards! Tap " + cardName(0) + " or " + cardName(1) + " to switch. A BINGO badge shows up when a card has a finished line."
+ },
   { target: () => mainEl.querySelector(".grid"), practice: "tap",
     text: () => "Ask the question in a box, then tap it to mark it! Tap again to undo. Try it on this practice box:" },
   { target: () => mainEl.querySelector(".grid"), practice: "hold",

@@ -159,6 +159,27 @@ body {
 .badge.show { display: inline-block; }
 .tab:not(.on) .badge { background: var(--t); color: #fff; }
 
+/* ---- Round 1 / Round 2 groups ---- */
+.round-label {
+  margin: 10px 8px 0;
+  font-family: var(--body);
+  font-weight: 800;
+  font-size: .72rem;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.round-label:first-child { margin-top: 0; }
+
+/* Round 2 appearing: each piece drops in, flashes gold and settles (staggered by --i) */
+.reveal { animation: px-reveal .7s steps(7) both; animation-delay: calc(var(--i, 0) * 140ms); }
+@keyframes px-reveal {
+  0%   { opacity: 0; transform: translateY(-18px) scale(.5); }
+  40%  { opacity: 1; transform: translateY(3px) scale(1.08); box-shadow: 0 0 0 4px var(--gold), 4px 4px 0 var(--outline); filter: brightness(1.4); }
+  70%  { transform: translateY(-2px) scale(.98); box-shadow: 0 0 0 2px var(--gold); }
+  100% { opacity: 1; transform: none; filter: none; }
+}
+
 .modes {
   margin-top: auto;
   display: flex;
@@ -666,6 +687,7 @@ main {
 .ms.got[data-at="50"]  { background-image: url(img/px-camera.svg); }
 .ms.got[data-at="70"]  { background-image: url(img/px-note.svg); }
 .ms.got[data-at="100"] { background-image: url(img/px-bouquet.svg); }
+.ms.got[data-round="2"][data-at] { background-image: url(img/px-heart.svg); } /* Round 2's surprises */
 .ms.got:after { color: var(--ink); }
 .ms.clickable { cursor: pointer; }
 .ms.clickable:hover { transform: translate(-50%, -60%); }
@@ -1131,7 +1153,11 @@ main {
   }
   .logo { grid-area: logo; margin: 0; font-size: 1.1rem; text-align: center; }
 
-  #tabs { grid-area: tabs; display: flex !important; gap: 6px; min-width: 0; }
+  /* 2 x 2: Round 1 on top, Round 2 below */
+  #tabs { grid-area: tabs; display: grid !important; grid-template-columns: 1fr 1fr; gap: 6px; min-width: 0; }
+  .round-label { display: none; }
+  .tab.r2 { padding-top: 4px; padding-bottom: 4px; font-size: .82rem; }
+  .tab.r2 .t:before { content: "R2 "; opacity: .75; font-family: var(--body); font-weight: 800; } /* pixel "2" reads as "8" */
   .tab {
     flex: 1 1 0;
     min-width: 0;
@@ -1184,7 +1210,7 @@ main {
 
 @media (prefers-reduced-motion: reduce) {
   .cell.stamp, .cell.stamp:after, .cell.sweep, .cell.sweep:before, .tier.pop, .tier.pop .ico,
-  .modal-box.pop, .modal-box.shake, .toast.show, .tour-bubble.pop, .reset.armed { animation: none; }
+  .modal-box.pop, .modal-box.shake, .toast.show, .tour-bubble.pop, .reset.armed, .reveal { animation: none; }
   .tour-hole { transition: none; }
   .toast.show { opacity: 1; transform: translate(-50%, 0); }
 }
