@@ -80,7 +80,7 @@ const MILESTONES = [
   { at: 30,  icon: "img/potatocorner.png", wide: true, text: "CONGRATS ON REACHING 30% POTATOCORNER TIME!" },
   { at: 50,  emoji: "📸", photo: true, text: "HALFWAY THERE! PHOTOBOOTH TIME POOO!" },
   { at: 70,  icon: "img/spotify.svg", text: "70%! MAKE A PLAYLIST THAT REMINDS YOU OF ME AND I'LL DO THE SAME <3 [3-Songs minimum]" },
-  { at: 100, icon: "img/bouquet.png", big: true, text: "100%! NEXT DATE IS ON ME, YOU PICK WHEN!" },
+  { at: 100, icon: "img/bouquet.png", big: true, pickDate: true, text: "100%! NEXT DATE IS ON ME, YOU PICK WHEN!" },
 ];
 // Round 2's surprises (placeholders until the real ones are written)
 const MILESTONES_2 = [
@@ -163,6 +163,8 @@ function applyFreeCells(card, k) {
 if (!Array.isArray(state.milestones)) state.milestones = [];
 if (!Array.isArray(state.milestones2)) state.milestones2 = [];
 state.unlocked2 = !!state.unlocked2;
+if (typeof state.nextDate !== "string") state.nextDate = ""; // the 100% date pick: "YYYY-MM-DD" or "YYYY-MM-DDTHH:MM"
+state.relockWait = !!state.relockWait; // re-locked while Round 1 was full: wait for it to drop below 100% first
 state.cards.forEach((card, k) => {
   renameOld(card);
   card.rewards = card.rewards || blankRewards();
@@ -547,6 +549,14 @@ const milestoneOverlay = makeOverlay(`
       <button class="photo-btn" type="button"></button>
       <input type="file" accept="image/*" hidden>
     </div>
+    <div class="ms-date" hidden>
+      <p class="ms-date-saved"></p>
+      <div class="ms-date-fields">
+        <label>Day<input type="date" required></label>
+        <label>Time <small>(optional)</small><input type="time"></label>
+      </div>
+      <button class="photo-btn" type="button"></button>
+    </div>
     <div class="date-check-actions"><button class="dc-good" type="button">Yiee kilig yan</button></div>
   </div>
 `, hideMilestone);
@@ -579,6 +589,7 @@ function showNextMilestone() {
   }
   milestoneOverlay.querySelector("h2").textContent = m.text;
   renderMilestonePhoto(m);
+  renderMilestoneDate(m);
   milestoneOverlay.classList.add("show");
   setTimeout(() => chip("levelup"), 120); // after the tap's own blip
   replay(milestoneBox, "pop");
@@ -590,6 +601,7 @@ function hideMilestone() {
   if (closing && closing.onClose) closing.onClose(closing);
   milestoneOverlay.classList.remove("show");
   photoMilestone = null;
+  dateMilestone = null;
   milestoneShowing = false;
   setTimeout(() => {
     showNextMilestone(); // next queued one, if several were crossed at once
@@ -690,6 +702,88 @@ function applyRemotePhotos(data, live) {
   if (live) showToast("New photo added!", "Tap the 50% surprise to see it");
 }
 
+/* ---------- the next date (on milestones with pickDate: true) ----------
+   She picks the day (and maybe a time) right in the 100% popup. Saved in
+   state.nextDate and in the cloud on bingo/card0 (field nextDate), so both
+   phones see it; the 100% marker on the bar re-opens it to change. */
+let dateMilestone = null; // the date milestone whose popup is open
+const dateBox = milestoneOverlay.querySelector(".ms-date");
+const dateSaved = dateBox.querySelector(".ms-date-saved");
+const dateDay = dateBox.querySelector('input[type="date"]');
+const dateTime = dateBox.querySelector('input[type="time"]');
+const dateBtn = dateBox.querySelector(".photo-btn");
+
+const pad2 = n => String(n).padStart(2, "0");
+const todayISO = () => { const d = new Date(); return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()); };
+
+// "2026-11-21T18:30" -> "Sat, Nov 21, 2026 · 6:30 PM"
+function formatNextDate(value) {
+  const [day, time] = value.split("T");
+  const [y, mo, d] = day.split("-").map(Number);
+  let text = new Date(y, mo - 1, d).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" });
+  if (time) {
+    const [h, mi] = time.split(":").map(Number);
+    text += " · " + ((h % 12) || 12) + ":" + pad2(mi) + (h < 12 ? " AM" : " PM");
+  }
+  return text;
+}
+
+function renderMilestoneDate(m) {
+  dateMilestone = m.pickDate ? m : null;
+  dateBox.hidden = !m.pickDate;
+  if (!m.pickDate) return;
+  const [day = "", time = ""] = state.nextDate.split("T");
+  dateSaved.textContent = state.nextDate ? "📅 Our next date: " + formatNextDate(state.nextDate) : "When's our next date?";
+  dateSaved.classList.toggle("set", !!state.nextDate);
+  dateDay.min = todayISO();
+  dateDay.value = day;
+  dateTime.value = time;
+  updateDateBtn();
+}
+
+function updateDateBtn() {
+  const value = dateDay.value + (dateTime.value ? "T" + dateTime.value : "");
+  dateBtn.disabled = !dateDay.value || value === state.nextDate;
+  dateBtn.textContent = state.nextDate ? (value === state.nextDate ? "Date saved ✓" : "Change our date 📅") : "Save our date 📅";
+}
+dateDay.oninput = dateTime.oninput = updateDateBtn;
+
+dateBtn.onclick = () => {
+  if (!dateDay.value) return;
+  if (dateDay.value < todayISO()) {
+    showToast("That day already passed", "Pick today or a day after", true);
+    replay(milestoneBox, "shake");
+    return;
+  }
+  state.nextDate = dateDay.value + (dateTime.value ? "T" + dateTime.value : "");
+  save();
+  syncNextDate();
+  chip("levelup");
+  if (dateMilestone) renderMilestoneDate(dateMilestone);
+};
+
+function syncNextDate(quiet) {
+  if (!syncDb) {
+    if (!quiet) showToast("Date saved on this phone", "It will not sync while offline", true);
+    return;
+  }
+  syncFs.setDoc(syncFs.doc(syncDb, "bingo", "card0"), { nextDate: state.nextDate }, { merge: true })
+    .then(() => { if (!quiet) showToast("It's a date! 💐", formatNextDate(state.nextDate), true); })
+    .catch(err => {
+      console.warn("Date sync failed:", err);
+      if (!quiet) showToast("Date saved on this phone only", "Couldn't send it to the other phone", true);
+    });
+}
+
+// the date was picked (or changed) on the other phone
+function applyRemoteDate(value, live) {
+  if (!/^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2})?$/.test(value) || value === state.nextDate) return;
+  state.nextDate = value;
+  save();
+  if (dateMilestone) renderMilestoneDate(dateMilestone);
+  if (live) showToast("Next date picked! 📅", formatNextDate(value));
+}
+
 // called whenever progress changes (checks both rounds)
 function checkMilestones() {
   if (!milestonesReady) return;
@@ -709,8 +803,9 @@ function checkMilestones() {
       }
     });
   });
+  if (state.relockWait && !roundOneFull()) { state.relockWait = false; changed = true; }
   if (changed) save();
-  if (!state.unlocked2 && roundOneFull()) unlockRound2(true);
+  if (!state.unlocked2 && !state.relockWait && roundOneFull()) unlockRound2(true);
   showNextMilestone();
 }
 
@@ -744,6 +839,24 @@ function unlockRound2(celebrate) {
     onClose: popup => revealRound2(popup.pressed),
   }));
   showNextMilestone();
+}
+
+// Edit mode's "Re-lock Round 2": hide it again on both phones so the whole
+// unlock + reveal plays again the next time Round 1 reaches 100%.
+// Round 2's marks and redeemed prizes are kept.
+function relockRound2(fromOtherPhone) {
+  if (!state.unlocked2) return;
+  state.unlocked2 = false;
+  revealPending = false;
+  state.relockWait = roundOneFull(); // still full: don't unlock again straight away
+  if (roundOf(state.active)) state.active = personOf(state.active);
+  seedHiddenRound2(); // hidden again, so its text comes from the code again
+  save();
+  render();
+  if (!fromOtherPhone && syncDb) {
+    syncFs.setDoc(syncFs.doc(syncDb, "bingo", "card0"), { round2: false }, { merge: true })
+      .catch(err => console.warn("Re-lock sync failed:", err));
+  }
 }
 
 // the Round 2 tabs drop into the sidebar one by one; "Open Round 2" then opens it
@@ -1217,7 +1330,26 @@ function render() {
     chipNuke();
   };
 
-  cardEl.append(nameInput, statusEl, gridEl, resetBtn);
+  // Edit mode only, once Round 2 is out: hide it again so the reveal can replay
+  const relockBtn = el("button", "reset relock");
+  relockBtn.textContent = "Re-lock Round 2";
+  relockBtn.hidden = !state.unlocked2;
+  let relockTimer = null;
+  relockBtn.onclick = () => {
+    if (!relockBtn.classList.contains("armed")) {
+      relockBtn.textContent = "Tap again to re-lock!";
+      replay(relockBtn, "armed");
+      relockTimer = setTimeout(() => { relockBtn.classList.remove("armed"); relockBtn.textContent = "Re-lock Round 2"; }, 3000);
+      return;
+    }
+    clearTimeout(relockTimer);
+    relockRound2(false);
+    showToast("Round 2 is hidden again 🔒", roundOneFull()
+      ? "It reappears when Round 1 hits 100% again (clear or unmark a box first)"
+      : "It reappears when Round 1 hits 100%");
+  };
+
+  cardEl.append(nameInput, statusEl, gridEl, resetBtn, relockBtn);
   const stage = el("div", "stage");
   stage.append(cardEl, hubEl);
   mainEl.replaceChildren(stage);
@@ -1391,6 +1523,10 @@ function applyRemoteCard(i, data, live) {
   // the other phone unlocked Round 2. If our copy of Round 1 isn't full yet,
   // its last marks are still on their way: give them a moment so the 100%
   // popup shows before the unlock one (checkMilestones unlocks as they land)
+  if (i === 0 && typeof data.nextDate === "string") applyRemoteDate(data.nextDate, live);
+  // picked while offline: send it up once the cloud copy is known
+  else if (i === 0 && !live && data.nextDate === undefined && state.nextDate) syncNextDate(true);
+  if (data.round2 === false && state.unlocked2) relockRound2(true); // re-locked on the other phone
   if (data.round2 === true && !state.unlocked2) {
     if (!live || roundOneFull()) unlockRound2(live);
     else setTimeout(() => unlockRound2(true), 2500);

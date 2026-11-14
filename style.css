@@ -477,7 +477,8 @@ main {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
-.edit .reset { display: none; }
+.edit .reset:not(.relock), .play .reset.relock { display: none; }
+.reset.relock[hidden] { display: none; }
 .reset.armed {
   color: #fff;
   background: #d9455f;
@@ -993,6 +994,43 @@ main {
 }
 .photo-btn:active:not(:disabled) { transform: translate(2px, 2px); box-shadow: none; }
 .photo-btn:disabled { opacity: .6; cursor: default; }
+/* the next-date picker in the 100% popup */
+.ms-date { display: flex; flex-direction: column; align-items: center; gap: 12px; margin: -10px 0 22px; }
+.ms-date-saved { margin: 0; font-family: var(--head); font-weight: 600; font-size: 1.05rem; color: var(--muted); }
+.ms-date-saved.set { color: var(--ink); }
+.ms-date-fields { display: flex; align-items: flex-end; gap: 10px; width: 100%; }
+.ms-date-fields label {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 4px;
+  text-align: left;
+  font-family: var(--head);
+  font-weight: 600;
+  font-size: .85rem;
+  color: var(--ink);
+}
+.ms-date-fields small { font-weight: 400; color: var(--muted); }
+.ms-date-fields input {
+  width: 100%;
+  min-width: 0;
+  font: inherit;
+  font-family: var(--body);
+  font-size: 16px; /* 16px+ so iPhones don't zoom in */
+  border: 2px solid var(--outline);
+  background: #fff;
+  color: var(--ink);
+  padding: 6px 8px;
+  box-shadow: 2px 2px 0 var(--outline);
+  border-radius: 0;
+}
+@media (max-width: 400px) {
+  .ms-date-fields { flex-direction: column; align-items: stretch; gap: 8px; }
+}
+.ms-date-fields input:focus-visible { outline: 2px solid var(--accent, var(--pink)); outline-offset: 2px; }
+
 /* the photo takes the place of the camera emoji */
 .milestone-box .modal-emoji[hidden] + h2 { margin-bottom: 22px; }
 
